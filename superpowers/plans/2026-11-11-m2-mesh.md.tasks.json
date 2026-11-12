@@ -1,0 +1,152 @@
+{
+  "planPath": "docs/superpowers/plans/2026-11-11-m2-mesh.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: Protos for M2",
+      "status": "completed",
+      "description": "**Goal:** Wire messages for pins, peer sessions, prekey consumption and owner-aware refill.\n\n```json:metadata\n{\"verifyCommand\": \"`cd otter-server && make gen && make check`\", \"acceptanceCriteria\": [\"`Endpoint.tls_spki_pin` (bytes, 5) becomes `repeated bytes tls_spki_pins = 5` (wire-compatible)\", \"`PrekeyConsumed`, `PrekeysLow.owner_node`, peer frames added; `make gen && make check` green\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Pinning, node TLS certificates, peer auth message",
+      "status": "completed",
+      "description": "**Goal:** Go helpers for SPKI pins and pinned TLS dialing; `otter-admin node add` creates a self-signed\n\n```json:metadata\n{\"verifyCommand\": \"`go test ./internal/pinning/ ./internal/keys/ ./internal/admin/ ./internal/vectors/ -v`\", \"acceptanceCriteria\": [\"`pinning.SPKIPin(cert)` = SHA-256(`RawSubjectPublicKeyInfo`)\", \"`pinning.ClientConfig(host, pins)`: with pins → accepts only a leaf whose pin matches, checks validity dates and hostname (SAN DNS or IP), ignores the CA chain; without pins → normal system verification\", \"`pinning.GenerateCert(hosts, ips, validity)` → ECDSA P-256 self-signed cert (SAN = hosts + ips), PEM cert + PEM key + pin\", \"`keys.PeerAuthMessage(id, nonce, ts)` = `\\\"otter-peer-v1\\\" ‖ id ‖ nonce ‖ be64(ts)`\", \"`node add`: default `--wss-port 27443`; repeatable `--ip`; for `WSS` endpoints writes `nodes/<label>/tls.crt` + `tls.key` (0600) valid 10 years and sets `tls_spki_pins`; IPs stored in `nodes/<label>/meta.json`; `--plain` endpoints get no cert\", \"Vectors: `tls_cert_der_hex` + `tls_spki_pin_hex` from a committed DER file\", \"Tests: matching pin connects (httptest TLS server with generated cert), wrong pin fails, wrong hostname fails, expired cert fails\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Node-authored records in the validator",
+      "status": "completed",
+      "description": "**Goal:** Nodes can sign `PREKEY_CONSUMED`; only nodes listed in the current manifest are accepted as authors.\n\n```json:metadata\n{\"verifyCommand\": \"`go test ./internal/records/ -v`\", \"acceptanceCriteria\": [\"`Validator.Nodes NodeResolver` (`NodeKey(id []byte) (ed25519.PublicKey, bool)`); nil resolver ⇒ node records rejected with `ErrUnknownAuthor`\", \"`PREKEY_CONSUMED`: author must resolve as a node; payload `user_id` 16 bytes, `device_id ≥ 1`, 1–200 `key_ids`\", \"A user key signing a `PREKEY_CONSUMED` → `ErrUnknownAuthor` (users are never node authors)\", \"Existing tests unchanged and green\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Store — replication support",
+      "status": "completed",
+      "description": "**Goal:** Peer-applied records never fail on business conflicts; usernames resolve deterministically; consumption\n\n```json:metadata\n{\"verifyCommand\": \"`go test -race ./internal/store/ -v`\", \"acceptanceCriteria\": [\"`ApplyReplicated(ctx, rec, body, from)` = apply with `origin = from` and `fromPeer = true`\", \"`INVITE_USED` from a peer for an unavailable invite is stored without error (first `used_by` wins); locally it still returns `ErrInviteUnavailable`\", \"`DIRECTORY_ENTRY`: users table stores `entry_created_ms` (from the record body). Username clash: locally submitted → `ErrUsernameTaken` (unchanged);\", \"`PREKEY_CONSUMED` marks the listed one-time keys (owner = record author) consumed\", \"`PrekeyCounts(ctx, user, device)` → `map[string]int` unconsumed one-time keys per owner node (key = string(owner id))\", \"`PeerCursor` / `SetPeerCursor` persist per-peer cursors (`peers` table)\", \"`Changed()` returns a channel closed after the next commit that applied ≥1 new record; a new channel each time\", \"`Expire(ctx, now)` in one write: delete mailbox rows and ENVELOPE records received > 30 days ago; delete ACK and PREKEY_CONSUMED records received\", \"Existing store tests green\"]}\n```",
+      "blockedBy": [
+        3
+      ]
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: Service — manifest cache, node key, replicated apply, retry-later",
+      "status": "completed",
+      "description": "**Goal:** Service knows the current manifest (node keys, peers), signs node records, applies peer records with\n\n```json:metadata\n{\"verifyCommand\": \"`go test ./internal/service/ -v` (and `go build ./...`)\", \"acceptanceCriteria\": [\"`service.New(st, nodeKey ed25519.PrivateKey, networkPub)`; `NodeID` derived from the key\", \"Manifest cache: `LoadManifest(ctx)` at start and after any applied MANIFEST; `CurrentManifest()`; `NodeKey(id)` implements `records.NodeResolver`;\", \"`ErrRetryLater` added (gateway → `STATUS_RETRY_LATER`); used for: login of an unknown user, unknown recipient in `Submit`, `FetchPrekeys` for an unknown user or a user without prekeys yet\", \"`FetchPrekeys`: when a one-time key is handed out, emits a node-signed `PREKEY_CONSUMED` record; low-water uses `PrekeyCounts` for **this** node\", \"`PrekeyStatus(ctx, user, device)` → `[]LowOwner{Node, Remaining}` for every manifest node with < `LowPrekeys` unconsumed keys owned by it\", \"`ApplyReplicated(ctx, from, rec)`: validate (users + nodes); `ErrUnknownAuthor` → `ErrRetryLater`; other validation errors → `ErrInvalid`;\", \"`PublishManifest(ctx, rec)`: must be a valid MANIFEST strictly newer than the current one (`ErrConflict` otherwise); applies + notifies\", \"`RunJanitor(ctx, every)` calls `Store.Expire` and logs counts\", \"Notifier gains `Manifest(version uint64)`; `PrekeysLow(user, device, owner []byte, remaining int)`\"]}\n```",
+      "blockedBy": [
+        2,
+        4
+      ]
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: Replication package",
+      "status": "completed",
+      "description": "**Goal:** Authenticated peer sessions that exchange oplogs both ways with flow control, cursors, tie-breaking and redial.\n\n```json:metadata\n{\"verifyCommand\": \"`go test -race ./internal/replication/ -v`\", \"acceptanceCriteria\": [\"Acceptor (`Replicator.ServeHTTP` on `<path>/peer`): sends `PeerHello`; verifies `PeerAuth` (node in manifest, not self, |skew| ≤ 5 min, signature over\", \"Dialer verifies `hello.node_id` == expected and the `PeerAuthOk` signature with the manifest key of that node\", \"Session: both sides send `PeerSubscribe{stored cursor}`; sender streams `Store.Since` in batches ≤512 records and ≤4 MiB, at most 4 unacked,\", \"Registry: one session per peer; if a second one appears, both nodes keep the session whose **dialer has the lower node_id** (same direction → newest)\", \"Replicator `Run`: every 5 s dial each manifest node without a session (WSS with pins; `WS_PLAIN` only if `allow_plain`), per-node backoff 5 s → 5 min\", \"`Dialer` is an interface (`Dial(ctx, *pb.NodeInfo) (*websocket.Conn, error)`) so tests can inject partitions\", \"`Status()` → per peer: connected, caught up, cursor (used by tests now, `otter-node status` in M8)\", \"Unit tests: two nodes over `httptest` converge both directions; bad signature / unknown node rejected; tie-break keeps one session; ErrRetryLater\"]}\n```",
+      "blockedBy": [
+        5
+      ]
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: Gateway, transport and node wiring",
+      "status": "completed",
+      "description": "**Goal:** Clients see manifest updates and owner-aware prekey refills; peers share the node port; the node runs replicator and janitor.\n\n```json:metadata\n{\"verifyCommand\": \"`make check`\", \"acceptanceCriteria\": [\"`status()` maps `service.ErrRetryLater` → `STATUS_RETRY_LATER`\", \"`Gateway.Manifest(v)` broadcasts `Event{manifest, ManifestResponse}` to every session (logged in or not)\", \"`manifest.publish` (public method, body `RecordRequest`) → `svc.PublishManifest`\", \"After `auth.login`: for each entry of `svc.PrekeyStatus` send `prekeys_low{remaining, owner_node}`; `Gateway.PrekeysLow` includes `owner_node`\", \"`wss.NewServer(cfg, client, peer http.Handler)` mounts `peer` at `cfg.Path + \\\"/peer\\\"` (nil → not mounted)\", \"Config `[mesh] allow_plain = false` (only for dev with `WS_PLAIN` endpoints)\", \"`otter-node run`: `service.New(st, nodeKey, netPub)`; `LoadManifest`; `replication.New(svc, NetDialer{AllowPlain: cfg.Mesh.AllowPlain}, log)`;\", \"Existing e2e test adapted (constructor, owner field) and green\"]}\n```",
+      "blockedBy": [
+        6
+      ]
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: Mesh simulation tests",
+      "status": "completed",
+      "description": "**Goal:** Prove the docs/03 partition table with three in-process nodes.\n\n```json:metadata\n{\"verifyCommand\": \"`go test -race ./internal/meshsim/ -v` (may take ~1 min)\", \"acceptanceCriteria\": [\"Harness starts N nodes (store, service, gateway, replicator, janitor off) on `httptest` servers with a shared manifest (`WS_PLAIN`, `allow_plain`)\", \"`partition` dialer wraps `NetDialer`: `Block(a,b)` makes dials between a and b fail and closes their live session conns; `Heal(a,b)`; `Stop(node)` / `Start(node)` restarts a node on the same DB file\", \"Test client (copy of the gateway test client) registers/logs in/sends/acks against any node\", \"Scenarios, each with `eventually(10s)`:\"]}\n```",
+      "blockedBy": [
+        7
+      ]
+    },
+    {
+      "id": 9,
+      "subject": "Task 9: Go client, `manifest publish`, local mesh script",
+      "status": "completed",
+      "description": "**Goal:** Admin can push a new manifest to running nodes; developers run three local nodes with one command.\n\n```json:metadata\n{\"verifyCommand\": \"`go test ./internal/client/ ./cmd/otter-admin/ -v`; `scripts/dev-mesh.sh` then `bin/otter-admin --dir .dev-mesh/admin manifest sign && bin/otter-admin --dir .dev-mesh/admin manifest publish --allow-plain` → 3 × ok\", \"acceptanceCriteria\": [\"Fix the --keep trap: dev networks reused by default; --reset (with confirmation) creates a new one\", \"`client.Dial(ctx, ep *pb.Endpoint, allowPlain bool)` (pinned TLS via `pinning.ClientConfig`), `Hello()`, `Call(ctx, method, req, resp) error` (non-OK → error with status)\", \"`otter-admin manifest publish [--via label]... [--allow-plain]`: sends `manifest.bin` to the given nodes (default: all in the manifest), prints per node `ok` / `already current` / error; exit 1 if none succeeded\", \"`scripts/dev-mesh.sh [--host H] [--keep]`: like `dev-node.sh` but three nodes `a`,`b`,`c` on ports 8081–8083 (`--plain`, `allow_plain = true`), one bootstrap invite, all three started in the background with logs in `.dev-mesh/<n>.log`; `stop` subcommand kills them; `kill b` / `start b` for manual failover testing\"]}\n```",
+      "blockedBy": [
+        7
+      ]
+    },
+    {
+      "id": 10,
+      "subject": "Task 10: Protos, database v3",
+      "status": "completed",
+      "description": "**Goal:** Sync protos (pins, peer messages unused, owner-aware prekeys_low); schema for endpoint stats, outbox resend, manifest age.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:database:testDebugUnitTest`\", \"acceptanceCriteria\": [\"`endpoint_stats(key TEXT PK, last_success_ms, last_failure_ms, rtt_ms, failures)`; DAO `get`, `upsert`, `all`\", \"Outbox queries: `due(now)` = unsent with `next_attempt_ms ≤ now` **or** sent > 24 h ago and not resent; `markSent(id, now)`, `markResent(id)`,\", \"`ManifestDao.latestTwo()`; `received_ms` filled on insert (from caller)\", \"Migration 2→3 validated by `MigrationTestHelper`; `./gradlew test` green\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 11,
+      "subject": "Task 11: Pinned TLS in the transport",
+      "status": "completed",
+      "description": "**Goal:** Connections to endpoints with pins trust only the pinned keys; others use the system trust store.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:network:test`\", \"acceptanceCriteria\": [\"`data class Candidate(nodeId, label, url, host, pins: List<ByteArray>, priority: Int)` with stable `key` (url + pins hash)\", \"`Endpoints.candidates(manifest, allowPlaintext)` replaces `urls()`; `WS_PLAIN` only when allowed; `REALITY` skipped\", \"`PinnedTrustManager(pins)`: leaf `checkValidity()`, SHA-256 of `publicKey.encoded` (SPKI DER) must match a pin, else `CertificateException`; empty chain rejected\", \"`Transport.connect(candidate)`: pins → per-pin-set `OkHttpClient` derived from one base client (`newBuilder()`, shared pool) with `sslSocketFactory(ctx, PinnedTrustManager)`; hostname verification stays OkHttp's default\", \"Kotlin computes the same pin as Go for `tls_cert_der_hex` (vector test)\", \"`PinnedConnectionTest` (JVM, `mockwebserver3` + `okhttp-tls` `HeldCertificate` for `localhost`): matching pin → HTTPS GET 200; wrong pin → `SSLHandshakeException`; no pins → fails (self-signed not in system store)\"]}\n```",
+      "blockedBy": [
+        2,
+        10
+      ]
+    },
+    {
+      "id": 12,
+      "subject": "Task 12: Endpoint racing (`NodeSelector`) and connection manager",
+      "status": "completed",
+      "description": "**Goal:** Connect to the fastest working endpoint; remember what worked; move on fast when a node fails.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:network:test :core:data:testDebugUnitTest`\", \"acceptanceCriteria\": [\"RpcClient reader never blocks on event handling (unbounded event channel); test with a slow collector\", \"Order: candidates with a success in the last 7 days first (by RTT ascending), then never-tried (by priority, manifest order), then those that failed in the last 10 minutes\", \"Race: start candidate 0, then one more every 250 ms, max 4 in flight; first to complete transport + `hello` (10 s timeout) wins; others cancelled/closed;\", \"ConnectionManager: race → `onConnected` (login…); if `onConnected` throws (e.g. `RETRY_LATER` because the node lacks our account yet), record a failure for\", \"`ConnectionState.Online(api, url, nodeLabel)`; `reconnect()` (drop + race now) and `retryNow()`\", \"`RemoteNodeApi.hello()` returns the `Hello` (node id, manifest version)\", \"Tests with `FakeTransport` + virtual time: slow first candidate loses to fast second; failing first → second wins without backoff; login failure on the winner → next candidate; stats ordering\"]}\n```",
+      "blockedBy": [
+        11
+      ]
+    },
+    {
+      "id": 13,
+      "subject": "Task 13: Manifest updates, network changes, periodic re-probe",
+      "status": "completed",
+      "description": "**Goal:** The app follows the admin's manifest changes and reacts to network switches.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:data:testDebugUnitTest`\", \"acceptanceCriteria\": [\"On each session after login: if `hello.manifest_version` > stored → `api.manifest()` → `ManifestVerifier.verify(raw, networkPub, current)` → store with `received_ms`\", \"Event `manifest` (body `ManifestResponse`) handled the same way; invalid/older manifests ignored (logged)\", \"Candidates = latest manifest's endpoints + the previous version's endpoints not present in the latest, if that version was received < 7 days ago (lower priority)\", \"If the connected node is absent from a newly stored manifest → `reconnect()`\", \"`NetworkMonitor` (ConnectivityManager default-network callback, registered by `ForegroundSync` while started): network change → `reconnect()` when Online on a different network, `retryNow()` when Waiting\", \"Every 30 min while Online and foreground: race the other candidates (probe only, connections closed after hello, results recorded); measure current RTT with `ping`;\", \"Tests: newer manifest stored, older ignored, tampered rejected; fallback candidates rule; node removal triggers reconnect (fake manager)\"]}\n```",
+      "blockedBy": [
+        12
+      ]
+    },
+    {
+      "id": 14,
+      "subject": "Task 14: Prekeys per owner node; resend undelivered messages",
+      "status": "completed",
+      "description": "**Goal:** Every node can hand out our one-time prekeys; messages lost with a dead node are re-sent.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:data:testDebugUnitTest`\", \"acceptanceCriteria\": [\"`prekeys_low{owner_node}` → `refill(api, owner)` uploads 50 keys owned by `owner` (via whatever node we're connected to); empty owner = connected node (M1 nodes)\", \"Pending-refill flag becomes a set of owner ids (Settings), retried on next login\", \"Outbox: after a successful send, **data messages** are marked sent (not deleted); receipts are deleted as before\", \"DELIVERED/READ receipt for a message → its outbox row deleted\", \"Sent > 24 h without receipt and not yet resent → the **same record** is sent again once (any node; nodes dedup); rows sent > 7 days ago are deleted\", \"`STATUS_RETRY_LATER` from `send`/`fetchPrekeys` → normal backoff (not FAILED)\", \"Tests (fake node, virtual clock): owner-specific refill; resend after 24 h reaches the recipient once (dedup); receipt removes outbox row; RETRY_LATER keeps PENDING\"]}\n```",
+      "blockedBy": [
+        10,
+        7
+      ]
+    },
+    {
+      "id": 15,
+      "subject": "Task 15: End-to-end against a local mesh",
+      "status": "completed",
+      "description": "**Goal:** Prove failover with real nodes and the real app stack.\n\n```json:metadata\n{\"verifyCommand\": \"`scripts/dev-mesh.sh --host 127.0.0.1` (otter-server) and `OTTER_DEV_MESH_INVITE=... OTTER_DEV_MESH_SCRIPT=... ./gradlew :core:data:testDebugUnitTest --tests '*LiveMeshTest*'`\", \"acceptanceCriteria\": [\"`LiveMeshTest` (skipped unless `OTTER_DEV_MESH_INVITE` is set; run against `scripts/dev-mesh.sh --host 127.0.0.1`): A registers (bootstrap) via node a,\", \"Manual checklist on two emulators against `dev-mesh.sh` (default host 10.0.2.2): both connected; kill the node each phone uses (Settings → Подключение shows it) →\", \"Results recorded in the task report\"]}\n```",
+      "blockedBy": [
+        9,
+        13,
+        14
+      ]
+    },
+    {
+      "id": 16,
+      "subject": "Task 16: Documentation updates",
+      "status": "completed",
+      "description": "**Goal:** Docs match what M2 built.\n\n```json:metadata\n{\"verifyCommand\": \"\", \"acceptanceCriteria\": [\"03: peer path `<path>/peer`, handshake, one session per pair (lower dialer wins), batches/window, **no snapshot** (rationale), retry-later rule,\", \"05: pinned TLS as implemented; racing parameters; manifest fallback rule; re-probe rule\", \"09: M1.5 = deployment scripts + DNS helpers only (pinning moved to M2); M2 marked done with deviations\", \"11: `[mesh] allow_plain` note; node↔node uses the node port; rotation section points to `manifest publish`\", \"00: decisions D29 (session tie-break), D30 (no snapshots), D31 (username clash rule), D32 (retry-later for replication lag)\"]}\n```",
+      "blockedBy": [
+        15
+      ]
+    }
+  ],
+  "lastUpdated": "2026-11-11T02:10:10Z"
+}

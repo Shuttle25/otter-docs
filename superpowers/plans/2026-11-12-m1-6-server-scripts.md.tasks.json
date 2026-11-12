@@ -1,0 +1,56 @@
+{
+  "planPath": "docs/superpowers/plans/2026-11-12-m1-6-server-scripts.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 1: otter-node stats",
+      "status": "completed",
+      "description": "**Goal:** A read-only `otter-node stats --config FILE` printing database counts.\n\nSee plan section 'Task 1: otter-node stats'.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/store/stats.go\", \"otter-server/cmd/otter-node/main.go\"], \"verifyCommand\": \"go test ./internal/store/ ./cmd/otter-node/ -run Stats -v && make check\", \"acceptanceCriteria\": [\"Store.Stats counts\", \"stats line format\", \"safe while running\"]}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 2: Hosts registry",
+      "status": "completed",
+      "description": "**Goal:** `~/.otter-admin/hosts` + deploy/hosts.sh set/get/list/rm + lib helpers.\n\nSee plan section 'Task 2: Hosts registry'.\n\n```json:metadata\n{\"files\": [\"otter-server/deploy/hosts.sh\", \"otter-server/deploy/lib.sh\", \"otter-server/deploy/test/scripts_test.sh\"], \"verifyCommand\": \"deploy/test/scripts_test.sh\", \"acceptanceCriteria\": [\"set/get/list/rm\", \"mode 0600\", \"invalid label/port refused\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 3: add-node.sh and status.sh",
+      "status": "completed",
+      "description": "**Goal:** One-command resumable node add; status table of all nodes.\n\nSee plan section 'Task 3: add-node.sh and status.sh'.\n\n```json:metadata\n{\"files\": [\"otter-server/deploy/add-node.sh\", \"otter-server/deploy/status.sh\"], \"verifyCommand\": \"deploy/test/scripts_test.sh\", \"acceptanceCriteria\": [\"add-node flow + resume (unsigned node gets signed on re-run)\", \"--version passes to make-bundle\", \"failure prints re-run hint\", \"conflict/usage refused early\", \"status rows, exit 1 on problems\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 3,
+      "subject": "Task 4: upgrade-all.sh",
+      "status": "completed",
+      "description": "**Goal:** Release + rolling upgrade, stop at first rollback.\n\nSee plan section 'Task 4: upgrade-all.sh'.\n\n```json:metadata\n{\"files\": [\"otter-server/deploy/upgrade-all.sh\"], \"verifyCommand\": \"deploy/test/scripts_test.sh\", \"acceptanceCriteria\": [\"hosts required up front\", \"arch detection\", \"skip current\", \"summary + exit code\"]}\n```",
+      "blockedBy": [
+        2
+      ]
+    },
+    {
+      "id": 4,
+      "subject": "Task 5: Two-VM e2e",
+      "status": "completed",
+      "description": "**Goal:** Named VMs; e2e-mesh.sh proves add-node, replication, upgrade-all, status.\n\nSee plan section 'Task 5: Two-VM e2e'.\n\n```json:metadata\n{\"files\": [\"otter-server/deploy/test/vm.sh\", \"otter-server/deploy/test/e2e-mesh.sh\", \"otter-server/Makefile\"], \"verifyCommand\": \"deploy/test/e2e-mesh.sh && deploy/test/e2e.sh\", \"acceptanceCriteria\": [\"e2e-mesh passes\", \"e2e.sh still passes\"]}\n```",
+      "blockedBy": [
+        0,
+        2,
+        3
+      ]
+    },
+    {
+      "id": 5,
+      "subject": "Task 6: Docs, register eeee, merge",
+      "status": "completed",
+      "description": "**Goal:** README/FIRST-DEPLOY/docs, D49, roadmap, eeee host (with OK), ff-merge, memory.\n\nSee plan section 'Task 6: Docs, register eeee, merge'.\n\n```json:metadata\n{\"files\": [\"otter-server/deploy/README.md\", \"otter-server/deploy/FIRST-DEPLOY.md\"], \"verifyCommand\": \"make check && deploy/test/scripts_test.sh\", \"acceptanceCriteria\": [\"docs updated\", \"D49\", \"merged\", \"memory updated\"]}\n```",
+      "blockedBy": [
+        4
+      ]
+    }
+  ],
+  "lastUpdated": "2026-11-12T08:43:43.401203"
+}

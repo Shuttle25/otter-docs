@@ -1,0 +1,107 @@
+{
+ "planPath": "docs/superpowers/plans/2026-11-11-m1-5-deployment-profile.md",
+ "tasks": [
+  {
+   "id": 1,
+   "subject": "Task 1: `make release` and version stamping",
+   "status": "completed",
+   "description": "**Goal:** `make release VERSION=x.y.z` produces static, version-stamped `otter-node` for linux/amd64 and linux/arm64,\n\n```json:metadata\n{\"files\": [\"otter-server/.gitignore\", \"otter-server/Makefile\", \"otter-server/cmd/otter-admin/main.go\", \"otter-server/cmd/otter-admin/main_test.go\"], \"verifyCommand\": \"`cd otter-server && make release VERSION=0.0.1-test && dist/otter-node_0.0.1-test_linux_amd64 version && (cd dist && sha256sum -c SHA256SUMS)`\", \"acceptanceCriteria\": [\"`make release` without `VERSION` fails with \\\"set VERSION=x.y.z\\\".\", \"`make release VERSION=0.0.1-test` creates `dist/otter-node_0.0.1-test_linux_{amd64,arm64}`, `dist/otter-admin_0.0.1-test_<goos>_<goarch>`, `dist/SHA256SUMS`; `file` reports \\\"statically linked\\\".\", \"`dist/otter-node_0.0.1-test_linux_amd64 version` prints `0.0.1-test`; `otter-admin version` prints the version.\", \"Older versions in `dist/` are kept; `SHA256SUMS` covers every `otter-*_*` file.\"]}\n```"
+  },
+  {
+   "id": 2,
+   "subject": "Task 2: `otter-node probe`, `check`, `backup`",
+   "status": "completed",
+   "description": "**Goal:** three operator subcommands the scripts rely on: a pinned-TLS hello probe, a pre-start config check, and a\n\n```json:metadata\n{\"files\": [\"otter-server/cmd/otter-node/main.go\", \"otter-server/internal/client/client.go\", \"otter-server/internal/nodecheck/check.go\", \"otter-server/internal/probe/probe.go\", \"otter-server/internal/store/backup.go\"], \"verifyCommand\": \"`cd otter-server && go test -race ./internal/probe ./internal/nodecheck ./internal/store ./internal/client ./cmd/otter-node`\", \"acceptanceCriteria\": [\"`otter-node probe --url wss://H:P/path --pin B64 [--pin …] [--addr IP:PORT] [--insecure] [--expect-node HEX] [--timeout 10s]` prints `ok node_id=<hex> protocol=1 rtt=<n>ms` and exits 0; exits 1 on wrong pin, wrong node id, timeout, or a `wss` URL without `--pin`/`--insecure`. It needs no config file.\", \"`--addr` dials that address but keeps the URL host for SNI and certificate checks.\", \"`otter-node check --config F` verifies: config loads; node key reads; `manifest_file` verifies against `network_pub`; this node is in the manifest; the manifest endpoint path equals `wss.path`; `tls_cert`/`tls_key` load as a pair and the certificate's pin is in the endpoint's pins. Prints one `ok …` line per check, or the first failure, and never opens the database.\", \"`otter-node backup --config F --out FILE` writes a consistent copy (`VACUUM INTO`) while the node may be running; refuses an existing `FILE`.\"]}\n```",
+   "blockedBy": [
+    1
+   ]
+  },
+  {
+   "id": 3,
+   "subject": "Task 3: `otter-admin` DNS and node operations",
+   "status": "completed",
+   "description": "**Goal:** the admin commands from docs/11 §5–§6: `dns records`, `dns check`, `node set-ip`, `node rotate-tls`,\n\n```json:metadata\n{\"files\": [\"otter-server/cmd/otter-admin/main.go\", \"otter-server/internal/admin/nodeops.go\", \"otter-server/internal/admin/tls.go\", \"otter-server/internal/pinning/pinning.go\"], \"verifyCommand\": \"`cd otter-server && go test -race ./internal/admin ./internal/pinning ./cmd/otter-admin`\", \"acceptanceCriteria\": [\"`dns records` prints, per node with a hostname (not an IP literal), one `A`/`AAAA` line per IP from `nodes/<label>/meta.json`, TTL 300, under a comment header; nodes without IPs get `; <label>: no IPs recorded (node set-ip)`.\", \"`dns check [--label L]` resolves each hostname and prints `ok`, `MISSING <ip>`, `UNEXPECTED <ip>` per node; exit 1 on any mismatch or resolution error; IP-literal hosts print `skip (IP endpoint)`.\", \"`node set-ip --label L --ip A [--ip B]` rewrites `meta.json`, re-issues `tls.crt` (and `tls.new.crt` if staged) with the **same key** and new SANs; the pin is unchanged; prints the DNS records to update. The manifest is not changed.\", \"`node rotate-tls --label L` writes `tls.new.{crt,key}` and appends the new pin (refuses if already staged); `node drop-old-pins --label L` moves `tls.*` → `tls.old.*`, `tls.new.*` → `tls.*`, keeps only the new pin (refuses if nothing is staged). Both say \\\"Run 'manifest sign' and 'manifest publish'\\\".\", \"`node env --label L` prints shell-quoted `OTTER_LABEL OTTER_HOST OTTER_PORT OTTER_PATH OTTER_NETWORK_PUB OTTER_NODE_ID OTTER_NODE_DIR OTTER_TLS_CERT OTTER_TLS_KEY OTTER_PIN OTTER_KIND` (TLS = the staged pair when present; `OTTER_PIN` = pin of that certificate, base64; `OTTER_KIND` = `wss`|`plain`).\"]}\n```"
+  },
+  {
+   "id": 4,
+   "subject": "Task 4: Server — profile updates (`directory.update`, `registered_ms`)",
+   "status": "completed",
+   "description": "**Goal:** a logged-in member can publish a newer version of their own directory entry; username clash ranking stays\n\n```json:metadata\n{\"files\": [\"otter-server/proto/otter/v1/records.proto\"], \"verifyCommand\": \"`cd otter-server && make gen && go test -race ./internal/records ./internal/store ./internal/service ./internal/gateway`\", \"acceptanceCriteria\": [\"`DirectoryEntry.registered_ms` (field 9, `int64`); a record with `registered_ms > created_ms + 5 min` is `INVALID`.\", \"`users.entry_created_ms` = `registered_ms` when > 0, else the record's `created_ms`; a replicated clash between a v2 entry (registered earlier) and another user's v1 entry keeps the name with the earlier registration.\", \"`directory.update{record}`: OK for a newer version of the caller's own entry with the same username and account key; `UNAUTHORIZED` for someone else's entry; `INVALID` for a changed username or non-directory record; `CONFLICT` for a version ≤ the current; `RETRY_LATER` when the node doesn't know the user yet. Every other connected client gets a `directory` event; `directory.sync` returns the new display name.\", \"Peers replicate the update like any directory entry (existing replication; covered by the meshsim run in `make check`).\"]}\n```"
+  },
+  {
+   "id": 5,
+   "subject": "Task 5: Bundle — templates, `make-bundle.sh`, server-side scripts",
+   "status": "completed",
+   "description": "**Goal:** `deploy/make-bundle.sh <label>` builds `dist/bundle-<label>.tar.gz` (0600) with everything a server needs;\n\n```json:metadata\n{\"files\": [\"docs/11-deployment.md\", \"otter-server/deploy/lib.sh\"], \"verifyCommand\": \"`cd otter-server && for f in deploy/*.sh deploy/bundle/*.sh deploy/test/*.sh; do bash -n \\\"$f\\\" || exit 1; done && deploy/test/bundle_test.sh`\", \"acceptanceCriteria\": [\"`make-bundle.sh fi-1 [VERSION]` (default: newest version in `dist/` by `sort -V`) creates `dist/bundle-fi-1.tar.gz` (mode 0600) containing `bundle-fi-1/` with: `otter-node-amd64`, `otter-node-arm64`, `node.key`, `tls.crt`, `tls.key` (the staged pair if present), `manifest.bin`, `node.toml`, `probe.env`, `otter-node.service`, `otter-backup.{service,timer}`, `site/index.html`, `invites/*.bin` (every pending bootstrap invite), the four scripts, `SHA256SUMS`; and writes `dist/bundle-fi-1.invites` listing the included invite files.\", \"It refuses to run when `manifest.bin` doesn't list the node or its pins don't include the bundle certificate's pin (message: run `manifest sign`).\", \"`deploy/test/bundle_test.sh` (no root, no VM) builds a bundle from a throwaway admin dir, verifies `SHA256SUMS`, rewrites `/etc/otter` and `/var/lib/otter` paths to temp dirs and passes `otter-node check`, and greps the unit for `ExecStart=/usr/local/bin/otter-node run --config /etc/otter/node.toml`.\", \"Scripts start with `set -euo pipefail`, print every action (`==> …`), and `bash -n` passes for all of them.\", \"The decoy page has no Otter/OtterMSG wording.\"]}\n```",
+   "blockedBy": [
+    2,
+    3
+   ]
+  },
+  {
+   "id": 6,
+   "subject": "Task 6: `push.sh`, `upgrade.sh`, `check.sh`",
+   "status": "completed",
+   "description": "**Goal:** the admin-side scripts that install a bundle remotely, upgrade with automatic rollback, and run the docs/11 §7\n\n```json:metadata\n{\"files\": [\"otter-server/deploy/push.sh\"], \"verifyCommand\": \"`bash -n deploy/push.sh deploy/upgrade.sh deploy/check.sh` (behaviour is verified by the VM test, Task 7)\", \"acceptanceCriteria\": [\"`push.sh <label> <root@host>`: builds the bundle if missing, uploads it to a `mktemp -d` dir, runs `install.sh`, removes the remote copy, runs `check.sh <label> <target>`, then deletes the local bundle and moves the included invites to `$OTTER_ADMIN_DIR/invites/delivered/`. A failure keeps the local bundle and exits non-zero.\", \"`upgrade.sh <root@host> <binary>`: verifies the checksum on the server, backs up the DB with the **installed** binary, swaps binaries (keeps `.prev`), restarts, runs `health.sh`. On failure: restores `.prev` and the DB copy, restarts, keeps the bad binary as `otter-node.failed`; exit 0 = upgraded, 2 = rolled back, 3 = rollback failed.\", \"`check.sh <label> [root@host]`: `dns check` (skipped when `OTTER_SKIP_DNS=1` or the host is an IP), probe with the pin (must pass), probe with a random pin (must fail), decoy `GET /` = 200 via `curl -k`; with a target also `systemctl is-active`, `NTPSynchronized=yes`, `health.sh`, and no \\\"not listed in the manifest\\\" log line since boot. `OTTER_PROBE_ADDR=host:port` overrides where the admin-side probes connect. Prints a PASS/FAIL table; exit 1 on any FAIL.\"]}\n```",
+   "blockedBy": [
+    5
+   ]
+  },
+  {
+   "id": 7,
+   "subject": "Task 7: VM end-to-end test (install, check, upgrade, rollback, backup, uninstall)",
+   "status": "completed",
+   "description": "**Goal:** a scripted run of the real scripts against a disposable Debian 12 VM under QEMU/KVM, plus the Android live\n\n```json:metadata\n{\"files\": [\"otter-server/.gitignore\", \"otter-server/deploy/test/e2e.sh\", \"otter-server/deploy/test/vm.sh\"], \"verifyCommand\": \"`cd otter-server && deploy/test/e2e.sh` → ends with `e2e: all steps passed`\", \"acceptanceCriteria\": [\"`deploy/test/vm.sh start|stop|ssh` boots a Debian 12 `genericcloud` amd64 image (downloaded once to `~/.cache/otter-vm/`, verified against Debian's `SHA512SUMS`) as a throwaway overlay, root SSH key login via cloud-init NoCloud (seed served over HTTP on 127.0.0.1:8099), forwards `127.0.0.1:2222→22` and `127.0.0.1:27443→27443`.\", \"`deploy/test/e2e.sh` (exit 0 only if every step passed): network with node `vm` (`--wss-host 127.0.0.1`), bootstrap invite, `push.sh` → install + checks pass; `push.sh` again (idempotent) passes; `upgrade.sh` to `0.0.2-e2e` → exit 0 and the node reports `0.0.2-e2e`; `upgrade.sh` with a broken binary → exit 2, node still answers and reports `0.0.2-e2e`; `backup.sh --install` + `systemctl start otter-backup.service` → one `node-*.db` in `/var/backups/otter`; `uninstall.sh` keeps `/var/lib/otter`; `uninstall.sh --purge` removes it.\", \"With `--keep`, e2e stops before uninstall and prints the bootstrap link; then `LiveNodeTest` passes against the VM over pinned TLS (`OTTER_DEV_INVITE=<link>`). Record the run in the M1.5 notes (Task 12).\"]}\n```",
+   "blockedBy": [
+    6
+   ]
+  },
+  {
+   "id": 8,
+   "subject": "Task 8: Android — profile data layer",
+   "status": "completed",
+   "description": "**Goal:** the app can change its display name offline-first and publishes a new signed directory entry when online;\n\n```json:metadata\n{\"files\": [\"otter-android/core/proto\"], \"verifyCommand\": \"`cd otter-android && JAVA_HOME=~/.gradle/jdks/eclipse_adoptium-21-amd64-linux.2 ./gradlew :core:data:testDebugUnitTest --tests '*Profile*' --tests '*DirectorySync*' --tests '*Registration*'`\", \"acceptanceCriteria\": [\"`ProfileRepository.setDisplayName(raw)`: trims; 1–64 code points else `ProfileError.Empty/TooLong`; stores the name in `account` and sets `profile_pending` in one transaction; `AccountRepository.account` emits the new name at once.\", \"While a session is up, a pending name is published as entry `version = entryVersion + 1` with the same username, keys, `identity_sig`, `can_invite = true` and `registered_ms = account.createdMs`; on OK the pending flag clears and `entryVersion` is stored. `CONFLICT` → reads its own entry from `directory()`, continues from that version (max 3 tries). Network errors leave it pending and retry on the next session or after 30 s.\", \"`DirectorySync` sees its own entry: raises `entryVersion` to the entry's version; when nothing is pending and the name differs, adopts it (restore/second install cases).\", \"Registration builds the entry through `DirectoryEntries` and sets `registered_ms`.\", \"Tests (`FakeNode`): offline edit → online publishes once; a second client sees the new contact name and the direct chat title; conflict path; validation; pending survives an app restart (new graph on the same DB).\"]}\n```",
+   "blockedBy": [
+    4
+   ]
+  },
+  {
+   "id": 9,
+   "subject": "Task 9: Android — `feature:settings`, Profile and Edit-name screens",
+   "status": "completed",
+   "description": "**Goal:** Settings becomes its own module; the profile row opens a Profile screen with an Edit-name screen, following\n\n```json:metadata\n{\"files\": [\"otter-android/feature/settings/build.gradle.kts\"], \"verifyCommand\": \"`cd otter-android && JAVA_HOME=~/.gradle/jdks/eclipse_adoptium-21-amd64-linux.2 ./gradlew :feature:settings:testDebugUnitTest :app:assembleDebug`\", \"acceptanceCriteria\": [\"Settings → \\\"Профиль\\\" section shows one row: avatar 48 dp (`OtterAvatar(name, seed = userId)`), display name, `@username`, chevron; tapping opens Profile.\", \"Profile: `OtterTopBar(\\\"Профиль\\\", onBack)`; centred avatar 64 dp; name 24/32 sp weight 600; `@username`; rows \\\"Имя\\\" (current name, chevron → Edit name) and \\\"Имя пользователя\\\" (`@username`, caption \\\"Нельзя изменить\\\"); while pending, a calm note \\\"Имя обновится у близких, когда появится подключение\\\" (`onSurfaceVariant`, no spinner).\", \"Edit name: single-line `OutlinedTextField` labelled \\\"Имя\\\", pre-filled, focus + keyboard on open, counter \\\"n / 64\\\" (code points) in supporting text; errors \\\"Введите имя\\\" / \\\"Не длиннее 64 символов\\\" shown under the field; \\\"Сохранить\\\" button (48 dp min, full width) disabled when unchanged or invalid; IME action Done saves; after save → back to Profile. Back without saving discards.\", \"English strings for every new string; content descriptions: \\\"Назад\\\" from `OtterTopBar`; avatars decorative.\", \"Layout works at 320 dp width and 200 % font (Profile scrolls; the field and button stay visible above the keyboard).\", \"\\\"Написать\\\" FAB uses the Otter primary container: light `#DCF1E3`/`#17382D`, dark `#25463A`/`#E0F4E7` (the outgoing-bubble tokens; contrast ≥ 4.5:1 for the label).\", \"The chat list's top-bar avatar and new invites (inviter name) use the new name immediately.\"]}\n```",
+   "blockedBy": [
+    8
+   ]
+  },
+  {
+   "id": 10,
+   "subject": "Task 10: Release build and on-device checks",
+   "status": "completed",
+   "description": "**Goal:** the R8 build works with the new module and API; the manual checklist covers profile editing and the VPS.\n\n```json:metadata\n{\"files\": [\"docs/m1.5-manual-test.md\", \"otter-android/app/proguard-rules.pro\", \"otter-android/docs/m1.5-manual-test.md\"], \"verifyCommand\": \"`cd otter-android && JAVA_HOME=~/.gradle/jdks/eclipse_adoptium-21-amd64-linux.2 ./gradlew assembleRelease assembleStaging test`\", \"acceptanceCriteria\": [\"`./gradlew assembleRelease assembleStaging` green; the `staging` APK on the emulator against `dev-node.sh` (`adb reverse tcp:<port> tcp:<port>`, see M3 notes) can rename the profile and the second scripted client sees it.\", \"`SmokeTest` still green: `./gradlew :app:connectedDebugAndroidTest` (after `adb uninstall app.ottermsg`).\", \"`docs/m1.5-manual-test.md` lists numbered steps with a result column for: rename on phone A → shown on phone B in contacts, direct chat title, group member list and group author names; rename offline → note → online → propagates; validation messages; 200 % font; TalkBack reads the profile rows; the VPS steps of Task 11.\"]}\n```",
+   "blockedBy": [
+    9
+   ]
+  },
+  {
+   "id": 11,
+   "subject": "Task 11: First real deployment (with the owner)",
+   "status": "pending",
+   "description": "**Goal:** the milestone's \"done when\": a node installed on a real VPS from a bundle, the app connected over pinned TLS,\n\n```json:metadata\n{\"files\": [\"docs/09-roadmap.md\", \"otter-android/docs/m1.5-manual-test.md\"], \"verifyCommand\": \"`deploy/check.sh <label> root@<server-ip>` → `all checks passed`\", \"acceptanceCriteria\": [\"The owner provides: the server (Hetzner, Linode or bare metal; Debian 12/13 or Ubuntu 22.04/24.04, root SSH key login), the domain, and whether it's a **new** network (then `network init` + bootstrap invite) or an extra node for an existing dev network. **Ask before touching any real server or DNS**; never put the admin key on a server.\", \"Following docs/11 §5 literally: `make release`, `node add`, `manifest sign`, `dns records` → owner creates the records → `dns check` ok → `make-bundle.sh`/`push.sh` → `check.sh <label> root@<ip>` all PASS.\", \"Both phones join (bootstrap link → second member by in-app invite), exchange messages, rename works.\", \"`upgrade.sh` to a new version succeeds; a deliberately broken binary rolls back (exit 2) without losing the chat.\", \"Every place where docs/11 didn't match reality is fixed in docs/11 (Task 12) and listed in the M1.5 notes.\"]}\n```",
+   "blockedBy": [
+    7,
+    10
+   ]
+  },
+  {
+   "id": 12,
+   "subject": "Task 12: Documentation",
+   "status": "completed",
+   "description": "**Goal:** the docs describe what was built.\n\n```json:metadata\n{\"files\": [\"docs/00-decisions.md\", \"docs/02-protocol.md\", \"docs/03-mesh-replication.md\", \"docs/07-android-architecture.md\", \"docs/08-operations.md\", \"docs/09-roadmap.md\", \"docs/10-otter-design-guidelines.md\", \"docs/11-deployment.md\", \"otter-server/README.md\"], \"verifyCommand\": \"`grep -n \\\"M1.5 notes\\\" docs/09-roadmap.md && grep -n \\\"D43\\\" docs/00-decisions.md && grep -n \\\"directory.update\\\" docs/02-protocol.md`\", \"acceptanceCriteria\": [\"00: D39–D43 as worded in this plan's header (adjusted to what was built).\", \"02: `DirectoryEntry.registered_ms`; method table row `directory.update{record}` with its statuses; the `Content` comment drops \\\"later: ProfileUpdate\\\" (profiles travel in the directory, not in E2E content, per D14/D39).\", \"03: username clash rule mentions `registered_ms`.\", \"07: module list gains `feature/settings` (settings, profile, edit name); `ProfileRepository` paragraph (pending flag, publisher per session, own-entry handling in `DirectorySync`).\", \"11: §10 work list marked done; `otter-node check/backup` (no sqlite3 CLI needed — replace the `sqlite3 … .backup` line); rotation files (`tls.new.*`, `tls.old.*`); the env variables; `/etc/otter/probe.env`; `/usr/local/lib/otter/`; the VM test; anything Task 11 found.\", \"08: points to `deploy/README.md` and 11 for day-2 commands.\", \"09: M1.5 row \\\"done YYYY-MM-DD\\\" (or \\\"VPS run open\\\"); Android column \\\"profile editing\\\"; **\\\"M1.5 notes\\\"** section in the same style as M3 notes (verified, deviations, open issues for M4+); the M3 open issue about the lavender FAB struck through.\"]}\n```",
+   "blockedBy": [
+    11
+   ]
+  }
+ ],
+ "lastUpdated": "2026-11-11T16:19:15+00:00"
+}

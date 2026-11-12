@@ -1,0 +1,3 @@
+# gitleaks v8 config (D57).
+[extend]
+useDefault = true

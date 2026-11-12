@@ -1,0 +1,123 @@
+{
+  "planPath": "docs/superpowers/plans/2026-11-12-m6-backup-restore.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 1: Protos and record validation",
+      "status": "completed",
+      "description": "**Goal:** BackupMeta, BlobMeta.persistent, PreKeys.installed_ms, LoginResponse, backup API messages, SessionReset, BackupSnapshot; validators.\n\nSee plan section 'Task 1: Protos and record validation'.\n\n```json:metadata\n{\"files\": [\"otter-server/proto/otter/v1/*.proto\", \"otter-server/internal/records/validate.go\"], \"verifyCommand\": \"cd otter-server && make gen && make check\", \"acceptanceCriteria\": [\"BACKUP_META rules\", \"persistent BLOB_META rules\", \"make check\"]}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 2: Storage \u2014 backups, persistent blobs, install identity",
+      "status": "completed",
+      "description": "**Goal:** Migration 0005, latest-wins apply, persistent GC, newest install wins, auth_failures queries.\n\nSee plan section 'Task 2: Storage \u2014 backups, persistent blobs, install identity'.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/store/migrations/0005_backups.sql\", \"otter-server/internal/store/typed.go\", \"otter-server/internal/store/apply.go\", \"otter-server/internal/store/janitor.go\", \"otter-server/internal/store/backups.go\"], \"verifyCommand\": \"cd otter-server && go test ./internal/store/ && make check\", \"acceptanceCriteria\": [\"latest version wins\", \"persistent blob lifetime\", \"install ordering\", \"auth failures\"]}\n```",
+      "blockedBy": [
+        0
+      ]
+    },
+    {
+      "id": 2,
+      "subject": "Task 3: Node methods \u2014 restore auth, backup publish, login response",
+      "status": "completed",
+      "description": "**Goal:** backup.auth/fetch/publish, per-session blob grant, persistent quota, LoginResponse.\n\nSee plan section 'Task 3: Node methods \u2014 restore auth, backup publish, login response'.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/service/backup.go\", \"otter-server/internal/gateway/methods.go\", \"otter-server/internal/service/service.go\"], \"verifyCommand\": \"cd otter-server && go test ./internal/service/ ./internal/gateway/ && make check\", \"acceptanceCriteria\": [\"fake salt stable\", \"rate limits\", \"grant scoped to blob\", \"login response\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 3,
+      "subject": "Task 4: Mesh scenarios",
+      "status": "completed",
+      "description": "**Goal:** Restore through C while A is down; newest install wins across nodes.\n\nSee plan section 'Task 4: Mesh scenarios'.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/meshsim/backup_test.go\"], \"verifyCommand\": \"cd otter-server && go test ./internal/meshsim/ -count=1 && make check\", \"acceptanceCriteria\": [\"restore via other node\", \"v1 gone after v2\", \"install ordering\"]}\n```",
+      "blockedBy": [
+        2
+      ]
+    },
+    {
+      "id": 4,
+      "subject": "Task 5: Android \u2014 protos, backup crypto, node API",
+      "status": "completed",
+      "description": "**Goal:** sync-proto, BackupKeys (BouncyCastle Argon2id + HKDF), NodeApi backup methods + LoginResponse, FakeNode.\n\nSee plan section 'Task 5: Android \u2014 protos, backup crypto, node API'.\n\n```json:metadata\n{\"files\": [\"otter-android/core/crypto/src/main/kotlin/app/ottermsg/core/crypto/BackupKeys.kt\", \"otter-android/core/network/src/main/kotlin/app/ottermsg/core/network/NodeApi.kt\", \"otter-android/core/data/src/test/kotlin/app/ottermsg/core/data/FakeNode.kt\"], \"verifyCommand\": \"cd otter-android && ./gradlew test\", \"acceptanceCriteria\": [\"RFC 9106 vector\", \"NodeApi methods\", \"FakeNode rules\"]}\n```",
+      "blockedBy": [
+        0
+      ]
+    },
+    {
+      "id": 5,
+      "subject": "Task 6: Database v6 and settings",
+      "status": "completed",
+      "description": "**Goal:** contacts.reset_ms, SYSTEM_RESET, NOT_IN_BACKUP, settings keys, PasswordPolicy (zxcvbn).\n\nSee plan section 'Task 6: Database v6 and settings'.\n\n```json:metadata\n{\"files\": [\"otter-android/core/database/src/main/kotlin/app/ottermsg/core/database/OtterDatabase.kt\", \"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/settings/Settings.kt\", \"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/backup/PasswordPolicy.kt\"], \"verifyCommand\": \"cd otter-android && ./gradlew :core:database:testDebugUnitTest :core:data:testDebugUnitTest\", \"acceptanceCriteria\": [\"DB v6 migration test\", \"settings keys\", \"password policy\"]}\n```",
+      "blockedBy": [
+        4
+      ]
+    },
+    {
+      "id": 6,
+      "subject": "Task 7: Install identity and session recovery",
+      "status": "completed",
+      "description": "**Goal:** installed_ms in PREKEYS, InstallGuard, SessionResets, auto-reset on undecryptable.\n\nSee plan section 'Task 7: Install identity and session recovery'.\n\n```json:metadata\n{\"files\": [\"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/messaging/SessionResets.kt\", \"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/backup/InstallGuard.kt\", \"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/sync/SyncEngine.kt\"], \"verifyCommand\": \"cd otter-android && ./gradlew test\", \"acceptanceCriteria\": [\"superseded detection\", \"reset restores 1:1 and group\", \"\u22641 reset/contact/hour\"]}\n```",
+      "blockedBy": [
+        5
+      ]
+    },
+    {
+      "id": 7,
+      "subject": "Task 8: Backup snapshot and BackupManager",
+      "status": "completed",
+      "description": "**Goal:** SnapshotCodec export/import; BackupManager setPassword/runNow/runIfDue/state.\n\nSee plan section 'Task 8: Backup snapshot and BackupManager'.\n\n```json:metadata\n{\"files\": [\"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/backup/SnapshotCodec.kt\", \"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/backup/BackupManager.kt\"], \"verifyCommand\": \"cd otter-android && ./gradlew test\", \"acceptanceCriteria\": [\"snapshot round trip\", \"persistent blob + meta published\", \"24 h trigger\", \"password change\"]}\n```",
+      "blockedBy": [
+        5
+      ]
+    },
+    {
+      "id": 8,
+      "subject": "Task 9: RestoreManager",
+      "status": "completed",
+      "description": "**Goal:** Restore with link+username+password, or link+24 words (+ history).\n\nSee plan section 'Task 9: RestoreManager'.\n\n```json:metadata\n{\"files\": [\"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/backup/RestoreManager.kt\"], \"verifyCommand\": \"cd otter-android && ./gradlew :core:data:testDebugUnitTest --tests '*RestoreFlow*'\", \"acceptanceCriteria\": [\"password path\", \"words path\", \"contacts keep chatting\", \"old install superseded\"]}\n```",
+      "blockedBy": [
+        6,
+        7
+      ]
+    },
+    {
+      "id": 9,
+      "subject": "Task 10: Settings \u2014 \u0420\u0435\u0437\u0435\u0440\u0432\u043d\u0430\u044f \u043a\u043e\u043f\u0438\u044f",
+      "status": "completed",
+      "description": "**Goal:** Backup screen with password form, strength meter, state, back up now, change password.\n\nSee plan section 'Task 10: Settings \u2014 \u0420\u0435\u0437\u0435\u0440\u0432\u043d\u0430\u044f \u043a\u043e\u043f\u0438\u044f'.\n\n```json:metadata\n{\"files\": [\"otter-android/feature/settings/src/main/kotlin/app/ottermsg/feature/settings/BackupScreen.kt\", \"otter-android/feature/settings/src/main/kotlin/app/ottermsg/feature/settings/BackupViewModel.kt\"], \"verifyCommand\": \"cd otter-android && ./gradlew :feature:settings:testDebugUnitTest\", \"acceptanceCriteria\": [\"off/on states\", \"policy gating\", \"RU/EN strings\"]}\n```",
+      "blockedBy": [
+        7
+      ]
+    },
+    {
+      "id": 10,
+      "subject": "Task 11: Onboarding restore, superseded screen, rendering",
+      "status": "completed",
+      "description": "**Goal:** Welcome restore flow, superseded gate, NOT_IN_BACKUP photo, SYSTEM_RESET chip.\n\nSee plan section 'Task 11: Onboarding restore, superseded screen, rendering'.\n\n```json:metadata\n{\"files\": [\"otter-android/feature/onboarding/src/main/kotlin/app/ottermsg/feature/onboarding/OnboardingViewModel.kt\", \"otter-android/app/src/main/java/app/ottermsg/SupersededScreen.kt\"], \"verifyCommand\": \"cd otter-android && ./gradlew test :app:assembleDebug\", \"acceptanceCriteria\": [\"restore steps + errors\", \"24-word input\", \"superseded screen\", \"rendering\"]}\n```",
+      "blockedBy": [
+        8
+      ]
+    },
+    {
+      "id": 11,
+      "subject": "Task 12: Live acceptance, release builds, manual checklist",
+      "status": "completed",
+      "description": "**Goal:** LiveRestoreTest on the dev mesh (also with b down), release build, emulator checks, m6-manual-test.md.\n\nSee plan section 'Task 12: Live acceptance, release builds, manual checklist'.\n\n```json:metadata\n{\"files\": [\"otter-android/core/data/src/test/kotlin/app/ottermsg/core/data/LiveRestoreTest.kt\", \"otter-android/docs/m6-manual-test.md\"], \"verifyCommand\": \"OTTER_DEV_INVITE=... ./gradlew :core:data:testDebugUnitTest --tests '*LiveRestoreTest*' --rerun\", \"acceptanceCriteria\": [\"live restore passes\", \"with b killed\", \"release build\", \"checklist\"]}\n```",
+      "blockedBy": [
+        3,
+        9,
+        10
+      ]
+    },
+    {
+      "id": 12,
+      "subject": "Task 13: Docs and merge",
+      "status": "completed",
+      "description": "**Goal:** D50\u2013D55 and docs, ff-merge both repos, memory.\n\nSee plan section 'Task 13: Docs and merge'.\n\n```json:metadata\n{\"files\": [\"docs/00-decisions.md\", \"docs/09-roadmap.md\"], \"verifyCommand\": \"cd otter-server && make check; cd otter-android && ./gradlew test assembleDebug\", \"acceptanceCriteria\": [\"docs\", \"merged\", \"memory\"]}\n```",
+      "blockedBy": [
+        11
+      ]
+    }
+  ],
+  "lastUpdated": "2026-11-12T10:01:46.029609"
+}

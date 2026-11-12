@@ -1,0 +1,127 @@
+{
+ "planPath": "docs/superpowers/plans/2026-11-11-m3-groups.md",
+ "tasks": [
+  {
+   "id": 1,
+   "subject": "Task 1: Server: SENDER_KEY rules, PREKEY_CONSUMED stall fix, group fan-out tests",
+   "status": "completed",
+   "description": "**Goal:** Nodes accept well-formed group envelopes and fan them out; an unknown node's PREKEY_CONSUMED no longer stalls a peer session.\n\n```json:metadata\n{\"verifyCommand\": \"`cd otter-server && make check`\", \"acceptanceCriteria\": [\"`kind = SENDER_KEY` ⇒ `shared_content` non-empty and every recipient's `content` empty; `SIGNAL`/`PREKEY_SIGNAL` ⇒ `shared_content` empty and every recipient has content\", \"`ApplyReplicated`: a `PREKEY_CONSUMED` whose author is not in the current manifest is **skipped** (returns `false, nil`, logged at debug) instead of `ErrRetryLater`.\", \"Gateway e2e: one SENDER_KEY envelope to 4 recipients → each logged-in recipient receives it; after 3 ACKs the record still exists; after the 4th it's deleted\", \"meshsim scenario 9: group envelope sent via A to members logged in on A, B, C → all receive it; ACKs from all → record gone everywhere\", \"`make check` green\"]}\n```"
+  },
+  {
+   "id": 2,
+   "subject": "Task 2: Message context menu above the pressed message (bug fix)",
+   "status": "completed",
+   "description": "**Goal:** Long-press opens the menu directly above the bubble, aligned with the bubble's side; it never jumps to the left edge.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:ui:test :feature:conversation:testDebugUnitTest`\", \"acceptanceCriteria\": [\"The menu anchors to the bubble's own bounds (the `Surface`), not the row\", \"Position: bottom edge of the menu = bubble top − 8 dp; horizontally aligned to the bubble's **end** for outgoing and **start** for incoming\", \"Menu items: same as today (Повторить if failed, Копировать, Удалить у меня) plus **Сведения** for outgoing group messages (Task 10).\", \"Pure position function unit-tested: outgoing near the bottom → above, right-aligned; incoming → left-aligned; bubble at the top → below; tall bubble → top; narrow window clamps x\", \"Compose test: long-press on a bubble shows the menu items; Back dismisses\"]}\n```"
+  },
+  {
+   "id": 3,
+   "subject": "Task 3: Design assets — sources, export script, launcher, illustrations, avatars",
+   "status": "completed",
+   "description": "**Goal:** Integrate the owner's Otter asset pack per its README rules.\n\n```json:metadata\n{\"verifyCommand\": \"`python3 scripts/export-assets.py --check && ./gradlew :core:ui:test assembleDebug`\", \"acceptanceCriteria\": [\"Masters copied byte-identical (script `--check` verifies the SHA-256s against both manifests and fails on a mismatch); masters never modified\", \"`export-assets.py` (deterministic, idempotent):\", \"Adaptive icon: `<background android:drawable=\\\"@color/ic_launcher_background\\\"/>` (`#DCF1E3`), `<foreground android:drawable=\\\"@mipmap/ic_launcher_foreground\\\"/>`,\", \"`ic_launcher_monochrome.xml` = vector from `otter_m3_monochrome_head.svg`: `width/height 108dp`, `viewportWidth/Height 1024`, a `<group>` with\", \"App theme: `Theme.Otter` (light parent `android:Theme.Material.Light.NoActionBar`, window background `#FAF7F2`; night parent `android:Theme.Material.NoActionBar`,\", \"`OtterIllustration(@DrawableRes id, maxSize: Dp, modifier)` = `Image(painterResource, contentDescription = null, contentScale = Fit)`, never tinted;\", \"Placements: Welcome screen (≤ 200 dp, above the title); chat list **truly empty after the first directory sync** → `otter_no_chats` (≤ 180 dp) +\", \"`OtterAvatar(name, seed: ByteArray, size, family: Boolean = false)`: family ⇒ `otter_family_avatar` fitted inside the circle (`ContentScale.Fit`, no crop) on\", \"`AvatarPalette`: 8 (background, text) pairs for light and 8 for dark, all ≥ 4.5:1 contrast (unit test computes the WCAG ratio, like `ContrastTest`)\", \"All existing avatar call sites pass the id seed; launcher checked on the emulator in circle and squircle shapes (Pixel launcher + Settings → themed icons on)\", \"Release APK size noted (should grow by < 1 MB)\"]}\n```"
+  },
+  {
+   "id": 4,
+   "subject": "Task 4: Content protos and `GroupRules`",
+   "status": "completed",
+   "description": "**Goal:** Group wire formats and the pure acceptance rules, fully unit-tested.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:crypto:test`\", \"acceptanceCriteria\": [\"Protos:\", \"`GroupSigning.sign(state, account)` / `verify(signed, accountPub)` (prefix `otter-group-v1`)\", \"`GroupRules.evaluate(current: Applied?, previous: GroupState?, candidate: GroupState, signer: ByteArray): Verdict` with\", \"Tests (table-driven): create; admin add/remove/rename/promote; non-admin change rejected; self-leave accepted; leave that changes the name rejected;\"]}\n```"
+  },
+  {
+   "id": 5,
+   "subject": "Task 5: `core:signal` group sessions",
+   "status": "completed",
+   "description": "**Goal:** Sender-key wrapper with rotation.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:signal:test`\", \"acceptanceCriteria\": [\"API: `distribution(groupDistId: UUID): ByteArray` (SKDM bytes for our own sender key; creates it on first use) — implemented with\", \"Tests with 3 in-memory parties: A distributes to B and C, sends 3 messages, both decrypt (incl. out of order); a duplicate → `DuplicateMessageException`;\"]}\n```",
+   "blockedBy": [
+    4
+   ]
+  },
+  {
+   "id": 6,
+   "subject": "Task 6: Database v4 for groups",
+   "status": "completed",
+   "description": "**Goal:** Persistent group model, pending queues, sender-key bookkeeping, per-recipient receipts.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:database:testDebugUnitTest`\", \"acceptanceCriteria\": [\"`groups(group_id PK, name, family, version, state_signed BLOB, prev_state BLOB?, i_am_member, created_by)` and `group_members(group_id, user_id, admin, PK(group_id,user_id))`\", \"`pending_group_updates(id PK auto, group_id, signed BLOB, from_user, received_ms)`; `pending_group_envelopes(record_key PK, group_id?, sender, record BLOB, received_ms)`\", \"`sender_key_shared(group_id, distribution_id, member, PK(all))`; `my_distribution(group_id PK, distribution_id, since_version)`\", \"`message_recipients(message_local_id, user_id, delivered_ms?, read_ms?, PK(message_local_id,user_id))`\", \"`conversations`: `peer_user_id` nullable, new `group_id` (nullable, unique index), `type` (0 direct, 1 group); `messages.system_data BLOB?` (encoded `GroupEvent`);\", \"DAO queries used by Tasks 7–8: members of a group, groups I'm in, `getOrCreateGroupConversation(groupId, title)`, aggregate receipt counts per message\", \"Migration test 3→4 keeps existing direct conversations and messages intact\"]}\n```",
+   "blockedBy": [
+    4
+   ]
+  },
+  {
+   "id": 7,
+   "subject": "Task 7: `core:data` — group state management",
+   "status": "completed",
+   "description": "**Goal:** Create and change groups locally, distribute signed updates, apply incoming ones with the rules, record system events, trigger rotation.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:data:testDebugUnitTest --tests '*Group*'`\", \"acceptanceCriteria\": [\"`GroupRepository`: `create(name, family, members)`, `addMembers`, `removeMember`, `rename`, `setAdmin(user, admin)`, `leave()`. Each builds the next state\", \"`GroupApplier.apply(signed, from)`: verify the signature with the signer's account key (unknown signer → directory sync once → still unknown → park);\", \"System events (stored as `messages` rows, kind `SYSTEM_GROUP`, `system_data` = proto `GroupEvent{type, actor, targets, name}`): created, added, removed, left,\", \"**Rotation trigger:** when an accepted state removes anyone (removed or left), delete `my_distribution` for that group (a new distId is created on the next send,\", \"Removed (or left) self: `i_am_member = false`, conversation stays readable, the composer is disabled (Task 10)\", \"Adding members: their 1:1 sessions are established lazily by the outbox like any 1:1 message (prekeys fetched on demand)\"]}\n```",
+   "blockedBy": [
+    5,
+    6
+   ]
+  },
+  {
+   "id": 8,
+   "subject": "Task 8: `core:data` — group messaging and receipts",
+   "status": "completed",
+   "description": "**Goal:** Send and receive group messages; per-recipient delivery state.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:data:testDebugUnitTest`\", \"acceptanceCriteria\": [\"`MessageRepository.sendText(conversationId, text)` for a group conversation: one transaction inserts the message (PENDING), `message_recipients` rows\", \"Outbox, group item, first processing: (1) ensure `my_distribution` exists (new random UUID if missing); (2) for every current member lacking a row in\", \"If membership shrank between enqueue and send, recipients are still the frozen set minus removed members (never send to a removed member)\", \"Receive `SENDER_KEY`: decrypt via `GroupSessions.decrypt(senderAddress, shared_content)`. `NoSessionException` or unknown group → store in `pending_group_envelopes`\", \"After decrypt: `content.data.group.group_id` must be a group where the sender ∈ members and I ∈ members (my state); otherwise drop (logged). Insert the message\", \"Receive `SenderKeyDistribution` (1:1): `GroupSessions.process(sender, message)`, then retry pending envelopes\", \"Receipts: a receipt for a message I sent to a group updates that message's `message_recipients` row for the receipt's author **only if** that author is in the\", \"`markConversationRead(groupConversation)` sends READ receipts grouped **per sender** (one receipt message per sender)\", \"24 h resend works for group items (same record); outbox rows are deleted when the aggregate reaches DELIVERED\", \"Integration tests (Robolectric, real libsignal, `FakeNode` extended to fan out SENDER_KEY envelopes), 5 clients A–E:\"]}\n```",
+   "blockedBy": [
+    7
+   ]
+  },
+  {
+   "id": 9,
+   "subject": "Task 9: UI — new group, chat list, group info (new module `feature:groups`)",
+   "status": "completed",
+   "description": "**Goal:** Create and manage groups.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :feature:groups:testDebugUnitTest :feature:chats:testDebugUnitTest assembleDebug`\", \"acceptanceCriteria\": [\"\\\"Написать\\\" picker (NewChat) gets a first row **\\\"Новая группа\\\"** → NewGroup: name field (1–64), switch **\\\"Семейная группа\\\"** (with a one-line explanation that\", \"Chat list: group rows show the family art (family) or coloured initials (by group id), title, last message preview \\\"Имя: текст\\\" for incoming group messages\", \"Group info: avatar 64 dp, name (admins: edit), \\\"N участников\\\" (real member count, separate from the art, D34), member list (admin badge \\\"админ\\\"), admin-only actions per\", \"Non-admins see the same screen without admin actions; removed users see the group as read-only with \\\"Вы больше не участник\\\"\", \"Group actions work offline: they're queued via the outbox like messages, and the UI shows the new state immediately (it's applied locally first)\", \"Accessibility: rows announce name + \\\"админ\\\"; actions available through custom accessibility actions, not only long-press\", \"ViewModel tests with a fake `GroupRepository`\"]}\n```",
+   "blockedBy": [
+    3,
+    8,
+    2
+   ]
+  },
+  {
+   "id": 10,
+   "subject": "Task 10: UI — group conversation and message info",
+   "status": "completed",
+   "description": "**Goal:** Conversation screen supports groups per guide §7–§8 and D23.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :feature:conversation:testDebugUnitTest`\", \"acceptanceCriteria\": [\"Top bar: avatar (family art / initials), title, subtitle \\\"N участников\\\" (groups only); tap → group info\", \"Incoming group bubbles show the author name (14/20 sp, 600) **at the start of a series** only (guide §7); series rules unchanged; author names are not distinguished by colour only\", \"System group events render as centered chips (`surfaceVariant`), e.g. \\\"Анна добавила Бориса\\\", \\\"Вы покинули группу\\\"; TalkBack reads them as text\", \"Not a member → the composer is replaced by a calm notice \\\"Вы больше не участник этой группы\\\"\", \"Outgoing group messages: the status icon shows the aggregate; the menu has **\\\"Сведения\\\"** → MessageInfo: \\\"Доставлено X из N\\\", \\\"Прочитано Y из N\\\", a list of recipients with\", \"Undecryptable pending group messages are not shown until they're resolved or expire (Task 8)\", \"Compose tests: author name only on the first bubble of a series; info screen shows \\\"2 из 3\\\"; the composer is hidden when not a member\"]}\n```",
+   "blockedBy": [
+    2,
+    8,
+    3
+   ]
+  },
+  {
+   "id": 11,
+   "subject": "Task 11: Group interop against the dev mesh",
+   "status": "completed",
+   "description": "**Goal:** Prove groups with real nodes.\n\n```json:metadata\n{\"verifyCommand\": \"`OTTER_DEV_MESH_INVITE=... ./gradlew :core:data:testDebugUnitTest --tests '*LiveGroupTest*'`\", \"acceptanceCriteria\": [\"`LiveGroupTest` (skipped unless `OTTER_DEV_MESH_INVITE` is set): three clients on different nodes of `dev-mesh.sh`; create group; messages from each reach the others;\", \"Manual checklist (2 phones + emulator, `dev-mesh.sh`): create a family group (family art shows), create a normal group (initials), add/remove/leave/promote, message menu\", \"Results recorded in the task report\"]}\n```",
+   "blockedBy": [
+    1,
+    10,
+    9
+   ]
+  },
+  {
+   "id": 12,
+   "subject": "Task 12: M2 leftovers — foreground retry, instrumented smoke test",
+   "status": "completed",
+   "description": "**Goal:** Close two open issues from the M2 notes.\n\n```json:metadata\n{\"verifyCommand\": \"start the emulator; `./gradlew :app:connectedDebugAndroidTest`\", \"acceptanceCriteria\": [\"`ForegroundSync.onStart`: if the connection is `Waiting`, call `retryNow()` (no more ≤ 72 s waits after returning to the app); unit test with a fake engine\", \"`SmokeTest` (instrumented, `connectedDebugAndroidTest` on the AVD): fresh install launches without a crash, shows the Welcome screen with the welcome illustration;\", \"Documented in the M3 notes how to run it (start the emulator `Medium_Phone_API_35`, then the Gradle task)\"]}\n```",
+   "blockedBy": [
+    3
+   ]
+  },
+  {
+   "id": 13,
+   "subject": "Task 13: Release build check",
+   "status": "completed",
+   "description": "**Goal:** Groups, sender keys and assets survive R8.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew assembleRelease` + manual run\", \"acceptanceCriteria\": [\"`./gradlew assembleRelease` green; install the release APK (debug-signed for testing) on a phone; create a group and exchange messages\", \"APK sizes noted (release, debug)\"]}\n```",
+   "blockedBy": [
+    11
+   ]
+  },
+  {
+   "id": 14,
+   "subject": "Task 14: Documentation",
+   "status": "completed",
+   "description": "**Goal:** Docs describe what M3 built.\n\n```json:metadata\n{\"verifyCommand\": \"\", \"acceptanceCriteria\": []}\n```",
+   "blockedBy": [
+    13
+   ]
+  }
+ ],
+ "lastUpdated": "2026-11-11T03:34:58+00:00"
+}

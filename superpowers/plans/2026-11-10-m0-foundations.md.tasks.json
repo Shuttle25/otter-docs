@@ -1,0 +1,91 @@
+{
+  "planPath": "docs/superpowers/plans/2026-11-10-m0-foundations.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: Server repo scaffold, protos, codegen",
+      "status": "completed",
+      "description": "**Goal:** Go module with protobuf schemas generated, make check green.\n\n```json:metadata\n{\"files\": [\"otter-server/go.mod\", \"otter-server/Makefile\", \"otter-server/proto/otter/v1/records.proto\", \"otter-server/proto/otter/v1/manifest.proto\"], \"verifyCommand\": \"cd otter-server && make gen && git diff --exit-code internal/proto && make check\", \"acceptanceCriteria\": [\"make gen reproducible\", \"make check passes\", \"round-trip tests\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: internal/keys",
+      "status": "completed",
+      "blockedBy": [
+        1
+      ],
+      "description": "**Goal:** ids, account key derivation, key files.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/keys/\"], \"verifyCommand\": \"cd otter-server && go test ./internal/keys/ -v\", \"acceptanceCriteria\": [\"ID16/RecordKey\", \"DeriveAccountKey HKDF\", \"encrypted + plain key files\"]}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: internal/records sign + validate",
+      "status": "completed",
+      "blockedBy": [
+        2
+      ],
+      "description": "**Goal:** pure record validation per docs/02.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/records/\"], \"verifyCommand\": \"cd otter-server && go test ./internal/records/ -v\", \"acceptanceCriteria\": [\"network/user/directory author binding\", \"all rejection rules tested\"]}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: internal/store sqlite + group commit",
+      "status": "completed",
+      "blockedBy": [
+        2
+      ],
+      "description": "**Goal:** idempotent Apply with oplog, Since, Get.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/store/\"], \"verifyCommand\": \"cd otter-server && go test -race ./internal/store/ -v\", \"acceptanceCriteria\": [\"WAL pragmas + migrations\", \"idempotent apply\", \"1000 concurrent applies\", \"reopen\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: otter-admin network/nodes/manifest",
+      "status": "completed",
+      "blockedBy": [
+        3
+      ],
+      "description": "**Goal:** admin CLI.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/admin/\", \"otter-server/cmd/otter-admin/\"], \"verifyCommand\": \"cd otter-server && go test ./internal/admin/ ./cmd/otter-admin/ -v\", \"acceptanceCriteria\": [\"network init\", \"node add/list/remove\", \"manifest sign/show verifies\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: cross-language vectors",
+      "status": "completed",
+      "blockedBy": [
+        3
+      ],
+      "description": "**Goal:** testdata/vectors/v1.json.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/vectors/vectors_test.go\", \"otter-server/testdata/vectors/v1.json\"], \"verifyCommand\": \"cd otter-server && go test ./internal/vectors/ -v\", \"acceptanceCriteria\": [\"deterministic vectors\", \"drift detection\"]}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: Android scaffold",
+      "status": "completed",
+      "description": "**Goal:** multi-module project builds.\n\n```json:metadata\n{\"files\": [\"otter-android/\"], \"verifyCommand\": \"cd otter-android && JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew assembleDebug test\", \"acceptanceCriteria\": [\"wrapper 8.14.3\", \"modules app/core:*\", \"sync-proto.sh\", \"label Otter, ru+en\"]}\n```"
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: core:crypto",
+      "status": "completed",
+      "blockedBy": [
+        6,
+        7
+      ],
+      "description": "**Goal:** BIP-39, seed keys, Ed25519, manifest verification vs Go vectors.\n\n```json:metadata\n{\"files\": [\"otter-android/core/crypto/\"], \"verifyCommand\": \"cd otter-android && JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :core:crypto:test\", \"acceptanceCriteria\": [\"BIP-39 vectors\", \"account key == Go\", \"manifest verify\"]}\n```"
+    },
+    {
+      "id": 9,
+      "subject": "Task 9: core:database",
+      "status": "completed",
+      "blockedBy": [
+        7
+      ],
+      "description": "**Goal:** Room + SQLCipher + Keystore-wrapped key.\n\n```json:metadata\n{\"files\": [\"otter-android/core/database/\"], \"verifyCommand\": \"cd otter-android && JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :core:database:testDebugUnitTest\", \"acceptanceCriteria\": [\"key provider\", \"DAO tests\", \"encrypted file (device)\"]}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 10: core:ui theme",
+      "status": "completed",
+      "blockedBy": [
+        7
+      ],
+      "description": "**Goal:** OtterTheme from design guide.\n\n```json:metadata\n{\"files\": [\"otter-android/core/ui/\", \"otter-android/app/src/main/java/app/ottermsg/MainActivity.kt\"], \"verifyCommand\": \"cd otter-android && JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :core:ui:test assembleDebug\", \"acceptanceCriteria\": [\"tokens exact\", \"contrast >= 4.5\", \"app uses OtterTheme\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-11-10T22:53:08Z"
+}

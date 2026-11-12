@@ -1,0 +1,177 @@
+{
+  "planPath": "docs/superpowers/plans/2026-11-10-m1-single-node-chat.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: Protos for M1",
+      "status": "completed",
+      "description": "**Goal:** All wire messages M1 needs, generated for Go (Android picks them up via `sync-proto.sh` in Task 10).\n\n```json:metadata\n{\"verifyCommand\": \"`cd otter-server && make gen && make check`\", \"acceptanceCriteria\": [\"`make gen` passes `buf lint` and regenerates with no manual edits\", \"Existing tests still pass (`make check`)\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Validation rules for M1 records + auth message",
+      "status": "completed",
+      "description": "**Goal:** Validator accepts network-signed bootstrap invites and enforces payload rules for INVITE,\n\n```json:metadata\n{\"verifyCommand\": \"`go test ./internal/keys/ ./internal/records/ -v` → PASS\", \"acceptanceCriteria\": [\"`keys.AuthMessage(nodeID, nonce, ts)` = `\\\"otter-auth-v1\\\" ‖ nodeID ‖ nonce ‖ be64(ts)`\", \"INVITE authored by `ID16(networkPub)` is verified with the network key; by a user → user key\", \"Payload rules (each with a test case): INVITE id 32 bytes & expires > 0; INVITE_USED id 32 bytes & `user_id == author`; ENVELOPE `sender_user == author`, `sender_device == 1`, 1–100 recipients, each `user` 16 bytes & `device ≥ 1`, non-empty content (per recipient or shared), total content ≤ 256 KiB, kind ≠ unspecified; ACK 1–1000 ids each 32 bytes; PREKEYS `device_id == 1`, `registration_id > 0`, signed key (if set) pub 33/sig 64, kyber (if set) pub 1000–2000 bytes/sig 64, ≤ 200 one-time keys each pub 33 & owner_node 16\", \"All M0 tests still pass\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Store — typed appliers, atomic groups, queries",
+      "status": "completed",
+      "description": "**Goal:** Records update derived tables (users, invites, prekeys, mailbox, tombstones, manifest) in the\n\n```json:metadata\n{\"verifyCommand\": \"`go test -race ./internal/store/ -v` → PASS\", \"acceptanceCriteria\": [\"Every Apply request runs inside `SAVEPOINT req`; any error rolls back only that request\", \"`ApplyAll(ctx, origin, items)` is all-or-nothing\", \"DIRECTORY_ENTRY inserts/updates `users` (higher version wins; `entry_key` follows); a different user claiming a taken username → `ErrUsernameTaken`, record not stored\", \"INVITE inserts `invites`; INVITE_USED sets `used_by` once, else `ErrInviteUnavailable`\", \"PREKEYS upserts `devices`, replaces signed/kyber, adds one-time keys\", \"ENVELOPE adds one mailbox row per recipient unless tombstoned; ACK deletes the author's rows, writes tombstones (30 d) and deletes the envelope record when no mailbox rows remain\", \"MANIFEST inserts into `manifest`\", \"Queries: `UserKey` (implements `records.UserResolver`), `UserByID`, `UsernameOwner`, `DirectoryEntries`, `Invite`, `Mailbox`, `TakePrekeys` (consumes one own one-time key, returns remaining), `LatestManifest`\", \"Existing store tests still pass\"]}\n```",
+      "blockedBy": [
+        2
+      ]
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: `internal/service` — register, login, submit, prekeys, directory",
+      "status": "completed",
+      "description": "**Goal:** Transport-independent business logic with typed errors.\n\n```json:metadata\n{\"verifyCommand\": \"`go test ./internal/service/ -v` → PASS\", \"acceptanceCriteria\": [\"`Register` checks (in order): complete request; invite exists (`ErrNotFound`); not used / not expired (`ErrConflict`); inviter is the network or an existing, non-revoked member with `can_invite` (`ErrUnauthorized`); directory entry valid (`ErrInvalid`); user not yet registered and username free (`ErrConflict`); prekeys record (author = new user, signed+kyber present) and INVITE_USED (matching invite id) valid; then applies all three atomically and calls `Notify.Directory()`\", \"`VerifyLogin` checks device 1, |now−ts| ≤ 5 min, user exists (`ErrUnauthorized`), not revoked (`ErrRevoked`), signature over `keys.AuthMessage(nodeID, nonce, ts)`\", \"`Submit(ctx, user, rec, allowed...)` validates, requires `author == user`, type in `allowed`; ENVELOPE recipients must exist (`ErrNotFound`); INVITE requires invite right; on first application of an ENVELOPE calls `Notify.Envelope` per recipient\", \"`FetchPrekeys` returns a `pb.PreKeyBundle` (identity from the directory entry); calls `Notify.PrekeysLow` when fewer than 10 own one-time keys remain\", \"`Directory`, `Manifest`, `Mailbox`, `ImportRecord` (validate + apply, any author) implemented\", \"Tests cover every error branch listed above\"]}\n```",
+      "blockedBy": [
+        3
+      ]
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: Gateway (WebSocket sessions) + WSS transport + end-to-end test",
+      "status": "completed",
+      "description": "**Goal:** Clients speak the `Frame` protocol over WebSocket; mailbox entries are pushed to logged-in sessions.\n\n```json:metadata\n{\"verifyCommand\": \"`go test -race ./internal/gateway/ ./internal/transport/... -v` → PASS\", \"acceptanceCriteria\": [\"On connect the node sends `Event{hello}` (protocol 1, node_id, 32-byte nonce, manifest version, server time)\", \"Only `ping`, `manifest.get`, `register`, `auth.login` work before login (others → `STATUS_UNAUTHORIZED`); a second login → `STATUS_INVALID`\", \"Methods: `register`, `auth.login`, `manifest.get`, `directory.sync`, `prekeys.upload`, `prekeys.fetch`, `msg.send`, `msg.ack`, `invite.create`, `ping` — errors mapped to `Status` + message\", \"After login and whenever a new envelope arrives for that user, the session pushes `Event{envelopes, RecordBatch}` (≤100 per event) containing only entries not yet pushed **in this session**; unacked entries are pushed again after reconnect\", \"`Event{directory}` broadcast after a registration; `Event{prekeys_low}` to the affected user's sessions\", \"Frames > 1 MiB rejected (connection closed)\", \"WSS server routes only the secret path to the gateway; any other path → static site dir or 404; TLS used when cert+key configured\", \"E2E test (real WebSocket, in-process node) covers: bootstrap register; invite + second register; unauthenticated call rejected; fetch prekeys; send; recipient receives on login; ack removes; reconnect without ack redelivers; directory event; prekeys_low event\"]}\n```",
+      "blockedBy": [
+        4
+      ]
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: `otter-node` binary and config",
+      "status": "completed",
+      "description": "**Goal:** A runnable node: `otter-node run --config node.toml`, `otter-node import --config node.toml FILE...`.\n\n```json:metadata\n{\"verifyCommand\": \"`go test ./internal/config/ ./cmd/otter-node/ -v` → PASS; `make build` produces `bin/otter-node`\", \"acceptanceCriteria\": [\"TOML config fields: `data_dir`, `node_key`, `network_pub` (hex), `manifest_file` (optional), `log_level` (debug|info|warn|error, default info), `[wss] listen, path, tls_cert, tls_key, site_dir`\", \"Validation errors name the field: missing required, bad hex/length, path not starting with `/` or shorter than 8, only one of cert/key\", \"`run`: opens `<data_dir>/node.db`, loads node key, imports `manifest_file` if set (verifies against `network_pub`), warns if this node is not in the latest manifest, serves until SIGINT/SIGTERM, graceful shutdown (5 s)\", \"`import`: applies each record file via `Service.ImportRecord`, prints `applied`/`already present` per file\", \"`main_test.go` builds a config in a temp dir, runs `import` of an admin-signed manifest and bootstrap invite (via `internal/admin`), then starts `run` on `127.0.0.1:0`-style free port in a goroutine and connects a WebSocket, receiving `hello`\"]}\n```",
+      "blockedBy": [
+        5
+      ]
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: Admin bootstrap invites, dev endpoints, vectors v1 extension",
+      "status": "completed",
+      "description": "**Goal:** Admin can create the first member's invite (link + terminal QR); dev nodes can advertise\n\n```json:metadata\n{\"verifyCommand\": \"`go test ./internal/admin/ ./cmd/otter-admin/ ./internal/vectors/ -v` → PASS\", \"acceptanceCriteria\": [\"`node add --plain` creates a `WS_PLAIN` endpoint\", \"`invite bootstrap [--ttl 168h]` requires `manifest.bin`; writes `invites/<first 16 hex of invite_id>.bin` (network-signed INVITE, `expires_ms` = now+ttl in both body and payload); prints the `otter://join/...` link, a terminal QR, and the import command\", \"`EncodeInviteLink`/`DecodeInviteLink` round-trip; decode rejects other schemes and bad base64\", \"Vectors gain `identity_pub_hex` (= `05 ‖ X25519(HKDF(seed,\\\"otter/identity/v1\\\"))`), `auth_message_hex`, `invite_link`; regenerated intentionally\"]}\n```",
+      "blockedBy": [
+        6
+      ]
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: Local development node script",
+      "status": "completed",
+      "description": "**Goal:** One command creates a throwaway network and runs a node reachable from the Android emulator.\n\n```json:metadata\n{\"verifyCommand\": \"`scripts/dev-node.sh` → prints link; `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/` → `404`; Ctrl-C stops it.\", \"acceptanceCriteria\": [\"`scripts/dev-node.sh` (re)creates `./.dev/` (gitignored): admin dir, node `dev` with `--plain --wss-host 10.0.2.2 --wss-port 8080`, signed manifest, `node.toml` (`listen = \\\"0.0.0.0:8080\\\"`), imports manifest + bootstrap invite, prints the invite link and QR, then runs the node in the foreground\", \"`--keep` reuses the existing `.dev/` (no new network) and just runs the node\", \"`--host H` overrides the advertised host (e.g. the PC's LAN IP for a real phone)\"]}\n```",
+      "blockedBy": [
+        7
+      ]
+    },
+    {
+      "id": 9,
+      "subject": "Task 9: Java 21 toolchain, libsignal, NDK, new modules",
+      "status": "completed",
+      "description": "**Goal:** Project compiles against libsignal 0.106.2 on Java 21, the APK strips native libs, and new module shells exist.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:signal:test assembleDebug && ls -lh app/build/outputs/apk/debug/`\", \"acceptanceCriteria\": [\"foojay resolver 0.10.0 in `settings.gradle.kts`; all modules use `jvmToolchain(21)` and Java 21 `compileOptions`\", \"NDK `27.0.12077973` installed (`sdkmanager \\\"ndk;27.0.12077973\\\"`) and set as `ndkVersion` in `app`; ABI filters `arm64-v8a`, `armeabi-v7a`, `x86_64`\", \"Packaging excludes `**/libsignal_jni_testing.so` and desktop natives (`libsignal_jni*.so`, `*.dylib`, `signal_jni*.dll` from java resources)\", \"`LibsignalSmokeTest` (JVM) creates an `IdentityKeyPair` and an `ECKeyPair` — proves desktop natives load in unit tests\", \"`./gradlew assembleDebug test` green; the debug APK size is recorded in the task report (expect < 60 MB)\"]}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 10: `core:crypto` additions — identity seed, auth message, invite links",
+      "status": "completed",
+      "description": "**Goal:** Kotlin mirrors of the Go helpers, checked against regenerated vectors.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:crypto:test`\", \"acceptanceCriteria\": [\"`SeedKeys.identityPrivate(seed)` = HKDF(seed, info `otter/identity/v1`, 32)\", \"`AuthMessage.build(nodeId, nonce, tsMs)` equals vector `auth_message_hex`\", \"`InviteLink.decode(vector invite_link)` yields inviter name \\\"Мама\\\", 32-byte secret, the vector manifest; `encode(decode(x)) == x`; decode rejects wrong scheme / bad base64 with `IllegalArgumentException`\"]}\n```",
+      "blockedBy": [
+        7,
+        9
+      ]
+    },
+    {
+      "id": 11,
+      "subject": "Task 11: `core:signal` — protocol store, identity, prekeys, sessions",
+      "status": "completed",
+      "description": "**Goal:** Everything libsignal-related behind a small API, persisted through a byte key-value interface.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:signal:test`\", \"acceptanceCriteria\": [\"`IdentityKeys.fromSeed(vector seed).publicKey.serialize()` == vector `identity_pub_hex`\", \"`IdentityKeys.bindAccount` / `verifyBinding` round-trip; tampered signature fails\", \"Two in-memory parties: Bob publishes prekeys (`PreKeyFactory`), Alice builds a session from a proto `PreKeyBundle`, sends 3 messages (first is `PREKEY_SIGNAL`), Bob decrypts in order; Bob replies (`SIGNAL`), Alice decrypts; replaying a message → `DuplicateMessageException`; out-of-order delivery decrypts\", \"Bundle whose identity differs from the directory identity → `IllegalStateException`\", \"Bundle without one-time key (last-resort Kyber only) still establishes a session\", \"`markKyberPreKeyUsed` twice with the same base key → `ReusedBaseKeyException`\", \"`saveIdentity` returns `REPLACED_EXISTING` and invokes the callback when a contact's identity changes\"]}\n```",
+      "blockedBy": [
+        10
+      ]
+    },
+    {
+      "id": 12,
+      "subject": "Task 12: `core:network` — transport, RPC, node API, connection manager",
+      "status": "completed",
+      "description": "**Goal:** Talk to a node: connect, read `hello`, call methods, receive events, reconnect with backoff.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:network:test`\", \"acceptanceCriteria\": [\"`Endpoints.urls(manifest, allowPlaintext)` → `wss://host:port/path` for `WSS`, `ws://...` for `WS_PLAIN` only when allowed; `REALITY` skipped (M7); order = manifest order (racing is M2)\", \"`RpcClient`: correlates responses by id; non-OK → `RpcException(status, error)`; timeout → `RpcTimeoutException`; `hello` exposed as `CompletableDeferred<Hello>`; other events on `events: SharedFlow<Event>`; connection close fails pending calls with `IOException`\", \"`RemoteNodeApi` implements `NodeApi` (register, login using hello nonce + `AuthMessage`, manifest, directory, uploadPrekeys, fetchPrekeys, send, ack, createInvite, ping)\", \"`ConnectionManager`: tries endpoints in order; after connect waits for hello (10 s) and runs `onConnected(api)`; exposes `state: StateFlow<ConnectionState>` (Offline / Connecting / Online(api) / Waiting(retryAtMs)); exponential backoff 1 s → 60 s with ±20 % jitter, reset after a successful session; `stop()` closes the connection and stops retrying\", \"Unit tests use an in-memory `FakeTransport` (no sockets)\"]}\n```",
+      "blockedBy": [
+        10
+      ]
+    },
+    {
+      "id": 13,
+      "subject": "Task 13: `core:database` v2 — messaging tables",
+      "status": "completed",
+      "description": "**Goal:** Persistent model for contacts, conversations, messages, outbox, dedup, Signal state and settings.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:database:testDebugUnitTest`\", \"acceptanceCriteria\": [\"Schema per the entities below; `schemas/.../2.json` exported; `AutoMigration(from = 1, to = 2)` verified by `MigrationTestHelper` (Robolectric)\", \"`ConversationDao.getOrCreateDirect(peer, title)` is idempotent (unique index on `peer_user_id`)\", \"`MessageDao.insert` ignores a duplicate `message_id` (returns -1)\", \"`MessageDao.advanceStatus(messageId, status)` only moves forward (PENDING < SENT < DELIVERED < READ) and never changes FAILED or incoming messages\", \"`ConversationDao.observeSummaries()` returns title, last message text/time/status/direction, unread count, newest first\", \"`SeenEnvelopeDao.insert` returns -1 for an already seen key; `prune(now)` deletes expired rows\", \"`OutboxDao.due(now)` ordered by id; `SignalKvDao` blocking get/put/delete/keys\"]}\n```",
+      "blockedBy": [
+        9
+      ]
+    },
+    {
+      "id": 14,
+      "subject": "Task 14: `core:data` — account, registration, directory, messaging engine",
+      "status": "completed",
+      "description": "**Goal:** All non-UI client logic: create an account from an invite, keep the directory, send/receive/ack\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :core:data:testDebugUnitTest`\", \"acceptanceCriteria\": [\"**Registration** (`Registration.register(link, displayName, username, seed)`): decodes the invite, verifies the manifest against the\", \"Username rules checked locally before network: `^[a-z0-9_]{3,32}$`; display name 1–64 chars trimmed\", \"**DirectorySync** verifies each entry (Ed25519 record signature by `account_pub`, `user_id == id16(account_pub)`, identity binding);\", \"**Send** (`MessageRepository.sendText(conversationId, text)`): one DB transaction inserts the message (PENDING, random 16-byte `message_id`)\", \"**Outbox** (serialised, runs when online): fetch prekeys + build session if none; encrypt once and persist the signed ENVELOPE in `record_bytes`\", \"**MailboxReceiver**: per record — dedup by record key (`seen_envelopes`, 30 d); unknown sender ⇒ directory sync once, still unknown ⇒ leave un-acked;\", \"**Receipts**: `markConversationRead(id)` clears unread and queues one READ receipt per conversation for messages without `read_receipt_sent`\", \"**Prekeys**: on `prekeys_low` (and on login when `settings.prekeysLow` flag is set) upload 50 new one-time keys owned by the current node, ids continuing from settings\", \"**InviteRepository.create()**: publishes a 7-day INVITE and returns `otter://join/...` with inviter id, keys, display name and latest manifest\", \"**SyncEngine**: owns `ConnectionManager` (urls from the latest stored manifest); `onConnected` = login → directory sync → prekey check →\", \"**ForegroundSync**: `ProcessLifecycleOwner` ON_START → `start()`, ON_STOP → `stop()` after 10 s unless restarted\", \"**Tests** (Robolectric + real libsignal + `FakeNode` implementing `NodeApi` in memory, two independent client graphs with in-memory Room):\"]}\n```",
+      "blockedBy": [
+        11,
+        12,
+        13
+      ]
+    },
+    {
+      "id": 15,
+      "subject": "Task 15: `feature:onboarding` — join with an invite",
+      "status": "completed",
+      "description": "**Goal:** First-run flow per `docs/07` screens §1 and `docs/10` (tone, layout, accessibility). Backup password is M6 — not shown.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :feature:onboarding:testDebugUnitTest`\", \"acceptanceCriteria\": [\"Flow: Welcome → Invite (scan QR with zxing **or** paste link; validation inline) → Profile (display name + username with live rule hint) →\", \"Seed generated once per flow (`SecureRandom`), kept in the ViewModel (`SavedStateHandle` stores **no** seed — process death restarts the flow)\", \"Camera permission requested only when tapping \\\"Сканировать\\\"; denial → message + paste option still works\", \"All interactive targets ≥ 48 dp; content descriptions in Russian/English; screen titles are headings for TalkBack\", \"Strings (ru/en) for every visible text; no technical jargon (no \\\"node\\\", \\\"RPC\\\")\", \"ViewModel tests: invalid link → error state; username rule; confirm with wrong word fails, right words pass; registration error mapping → message id\"]}\n```",
+      "blockedBy": [
+        14
+      ]
+    },
+    {
+      "id": 16,
+      "subject": "Task 16: `feature:chats` — chat list, new chat, invite, minimal settings",
+      "status": "completed",
+      "description": "**Goal:** Main screen per `docs/10` §6 and `docs/07` screens 2, 4, 6, 7 (M1 subset).\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :feature:chats:testDebugUnitTest`\", \"acceptanceCriteria\": [\"Chat list: top bar \\\"Otter\\\" + avatar button → Settings; rows (48 dp avatar with initials, title, last message preview with status icon for outgoing,\", \"Connection banner under the top bar: `Waiting`/`Offline` → \\\"Нет подключения. Сообщения отправятся автоматически.\\\"; `Connecting` shown only if it lasts > 2 s → \\\"Подключаемся…\\\"; `Online` → hidden. No node names here.\", \"New chat: list of family members (contacts, excluding self), tap → `getOrCreateDirect` → open conversation\", \"Invite screen: creates an invite, shows QR (zxing `BarcodeEncoder` → `ImageBitmap`, 256 dp, with content description) + \\\"Поделиться ссылкой\\\" (`Intent.ACTION_SEND`), expiry text \\\"Действует 7 дней, один раз\\\"; error → retry\", \"Settings (M1 stub): profile name/username, \\\"Пригласить в семью\\\" → Invite, \\\"Подключение\\\" row showing human status (+ node URL in secondary text); other sections from the guide are not shown yet\", \"Strings ru/en; icons with descriptions; 48 dp targets\"]}\n```",
+      "blockedBy": [
+        14
+      ]
+    },
+    {
+      "id": 17,
+      "subject": "Task 17: `feature:conversation` — 1:1 conversation",
+      "status": "completed",
+      "description": "**Goal:** Conversation screen per `docs/10` §7–§8 (text only in M1).\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew :feature:conversation:testDebugUnitTest`\", \"acceptanceCriteria\": [\"Top bar: Back, 40 dp avatar, title (1 line, ellipsis); no call buttons, no fake online status\", \"Bubbles: outgoing right (`outgoingContainer`), incoming left (`surface`); radius 20 dp; padding 12/8 dp; max width min(84 %, 480 dp)\", \"Grouping: 4 dp between same-author messages, 12 dp between groups; new group on author change, > 5 min gap, or date change; date chip centered\", \"Undecryptable message → system bubble \\\"Не удалось прочитать сообщение. Пробуем восстановить соединение\\\"\", \"Composer: growing field 1–5 lines (radius 24 dp), Enter = newline, round 48 dp send button disabled when blank; on send the text is cleared **only after**\", \"Long-press menu: \\\"Копировать\\\" (clipboard), \\\"Удалить у меня\\\" with confirm dialog \\\"Сообщение исчезнет только на этом устройстве\\\"; FAILED message tap → \\\"Повторить\\\" (re-queues)\", \"Opening/visible conversation → `markConversationRead` (on enter and when new incoming arrive while visible)\", \"Scrolling: list starts at bottom; new incoming while user scrolled up → \\\"jump to bottom\\\" button with count; own send scrolls to bottom\", \"TalkBack: each message is one merged node \\\"Автор, текст, время, статус\\\"\", \"No photo/camera/voice/reaction controls in M1\"]}\n```",
+      "blockedBy": [
+        14
+      ]
+    },
+    {
+      "id": 18,
+      "subject": "Task 18: App wiring",
+      "status": "completed",
+      "description": "**Goal:** One app: onboarding when there is no account, chats otherwise; sync while in foreground; plaintext only in debug.\n\n```json:metadata\n{\"verifyCommand\": \"`./gradlew assembleDebug assembleRelease test`\", \"acceptanceCriteria\": [\"`AppModule` provides `@AllowPlaintext = BuildConfig.ALLOW_PLAINTEXT`\", \"Debug-only network security config permits cleartext (for `ws://10.0.2.2`); release has none (cleartext blocked by default on API 28+, and `ALLOW_PLAINTEXT=false` drops `WS_PLAIN` endpoints)\", \"`MainActivity`: shows a blank themed surface while `AccountRepository.load()` runs (no skeleton), then onboarding or chats; after onboarding DONE → chats (back stack cleared)\", \"NavHost routes: `onboarding`, `chats`, `newChat`, `conversation/{id}`, `invite`, `settings`\", \"`OtterApp` registers `ForegroundSync` with `ProcessLifecycleOwner` once an account exists (and right after registration)\", \"`INTERNET` permission in main manifest; camera permission is declared by the zxing library\", \"`./gradlew assembleDebug assembleRelease` succeed (release unsigned is fine); R8 keeps libsignal/proto classes\"]}\n```",
+      "blockedBy": [
+        15,
+        16,
+        17
+      ]
+    },
+    {
+      "id": 19,
+      "subject": "Task 19: End-to-end verification against a real node",
+      "status": "completed",
+      "description": "**Goal:** Prove interop with `otter-node` automatically, then on emulators by hand.\n\n```json:metadata\n{\"verifyCommand\": \"`cd otter-server && scripts/dev-node.sh --host 127.0.0.1` (terminal 1); `OTTER_DEV_INVITE=\\\"$(cat ../otter-server/.dev/bootstrap-invite.txt)\\\" ./gradlew :core:data:testDebugUnitTest --tests '*LiveNodeTest*'` (terminal 2) → PASS\", \"acceptanceCriteria\": [\"`LiveNodeTest` is skipped unless `OTTER_DEV_INVITE` (bootstrap link) is set; with the dev node running (`otter-server/scripts/dev-node.sh --host 127.0.0.1`):\", \"Manual checklist executed on two emulators (create a second AVD:\", \"Results (pass/fail per line, APK size, any crash logs from `adb logcat`) recorded in the task report\"]}\n```",
+      "blockedBy": [
+        8,
+        18
+      ]
+    }
+  ],
+  "lastUpdated": "2026-11-11T00:25:38Z"
+}
