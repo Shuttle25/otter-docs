@@ -132,7 +132,7 @@
     {
       "id": 15,
       "subject": "Task 15: Docs, decisions D76–D81, news draft",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Docs describe M8 as built; the 0.8.0 news draft is ready.\n\nSee plan section 'Task 15: Docs, decisions D76–D81, news draft' in 2026-11-13-m8-audio-calls.md for files, code and steps.\n\n**Verify:** `cd docs && scripts/secrets-check.sh` → `secrets check: ok`; `grep -c '^| D7[6-9]\\|^| D8[01]' 00-decisions.md` → `6`\n\n```json:metadata\n{\"files\": [\"00-decisions.md\", \"02-protocol.md\", \"05-transport.md\", \"06-node-architecture.md\", \"07-android-architecture.md\", \"08-operations.md\", \"turn-setup.sh\", \"09-roadmap.md\", \"README.md\", \"otter-server/README.md\", \"otter-android/README.md\", \"otter-server/dist/news/0.8.0.md\"], \"verifyCommand\": \"`cd docs && scripts/secrets-check.sh` → `secrets check: ok`; `grep -c '^| D7[6-9]\\\\|^| D8[01]' 00-decisions.md` → `6`\", \"acceptanceCriteria\": [\"D76 (WebRTC M150 `io.github.webrtc-sdk:android`, 1:1 audio, Opus; revises D6), D77 (embedded Pion TURN v5: ports, per-node secret, 12 h TURN-REST, quotas, rate cap, UDP relays only, peer deny list, no TLS verification), D78 (`CallMessage` field 6, urgent, 2-min expiry + node filter/purge, DELIVERED for offers, fingerprints only in encrypted SDP, glare rule), D79 (own-node relay, relay-only default on), D80 (core-telecom 1.0.1, `phoneCall` FGS, CallStyle full-screen, lock-screen shows the caller's name, call lines in the chat, no tab, background-FGS fallback), D81 (timers) recorded with reasons; the \\\"pion/turn v5 instead of v4\\\" and \\\"webrtc-sdk instead of stream-webrtc\\\" choices are in the reasons.\", \"News draft `## ru` / `## en`: calls in 1:1 chats, relay-only privacy, Android may ask for microphone and \\\"full-screen notifications\\\"; phones on 0.7.0 cannot receive calls and may see an empty chat appear when someone calls them — update to 0.8.0. No IPs or server names.\"]}\n```",
       "blockedBy": [
         14
@@ -141,7 +141,7 @@
     {
       "id": 16,
       "subject": "Task 16: Final verification; merge after the owner says so",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Everything is green on all three branches; the owner approves; branches are merged with `--no-ff`.\n\nSee plan section 'Task 16: Final verification; merge after the owner says so' in 2026-11-13-m8-audio-calls.md for files, code and steps.\n\n**Verify:** `git -C otter-server log --oneline -1 main` (and android, docs) shows the merge commit after the owner's approval; secrets checks printed `ok` immediately before the push.\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"`git -C otter-server log --oneline -1 main` (and android, docs) shows the merge commit after the owner's approval; secrets checks printed `ok` immediately before the push.\", \"acceptanceCriteria\": [\"`otter-server`: `make check` → ok; `go test ./internal/meshsim/ -count=3 -race` → ok; `scripts_test.sh` in a scratch copy → `scripts_test: ok`; `make release VERSION=0.8.0` builds into `dist/` (nothing in `dist/` deleted).\", \"`otter-android`: `./gradlew test lintDebug assembleRelease` → BUILD SUCCESSFUL; release APK release-signed (`apksigner verify --print-certs` shows the release certificate, not the debug one); ABIs arm64-v8a + armeabi-v7a only; size recorded.\", \"`scripts/secrets-check.sh` → `secrets check: ok` in `otter-server`, `otter-android`, `docs`.\", \"The owner has seen a summary (what changed, sizes, checklist status, open owner rows) and said \\\"merge\\\"; then in each repo `git checkout main && git merge --no-ff m8-calls && git push`.\"]}\n```",
       "blockedBy": [
         15
@@ -157,5 +157,5 @@
       ]
     }
   ],
-  "lastUpdated": "2026-11-13T20:30:02.708305+00:00"
+  "lastUpdated": "2026-11-13T21:08:33.243614+00:00"
 }
