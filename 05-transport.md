@@ -29,6 +29,8 @@ hosting outages.
   the messenger WebSocket lives on a secret path (`/<random-32-chars>`), anything else gets the site.
 * Can be placed **behind a CDN** (e.g. Cloudflare with WebSockets enabled): the client
   connects to CDN IPs, so blocking the node's IP doesn't matter; SNI is the CDN-hosted domain.
+  **Postponed (D75):** with the domestic relay phones never reach a foreign IP, and Cloudflare is reportedly
+  throttled in Russia; `via_cdn` stays in the manifest for later.
 * Client: OkHttp on Android → TLS fingerprint identical to millions of ordinary Android apps.
 * Pinning: the manifest carries the node's TLS SPKI pins (`tls_spki_pins`, several during rotation);
   the app accepts only a leaf certificate matching a pin. Endpoints without pins use normal CA validation. Behind a CDN the CDN terminates TLS, so authentication relies on the inner
@@ -39,21 +41,42 @@ hosting outages.
   connection to a real large website (the "camouflage" SNI, e.g. a popular foreign site);
   unauthenticated probes are transparently forwarded to that real site, so active probing
   sees a genuine site.
-* Server: `otter-node` embeds Xray-core as a Go library with a REALITY inbound on :443 that
-  forwards authenticated streams to the node's internal WebSocket handler.
-* Client: **libXray** (Xray-core compiled with gomobile into an AAR) runs in-process with a
-  SOCKS5 inbound on `127.0.0.1:<random port>` with a **random per-session username/password**
-  (prevents other apps from using or probing it); OkHttp's WebSocket goes through that proxy.
-  No `VpnService` is used.
-* Manifest carries: address, port, VLESS UUID (per network), REALITY public key, short IDs,
-  server name(s), uTLS fingerprint (`chrome`).
+* **Between nodes only (M7, D70, D72).** Phones don't speak REALITY in V1 (D75); release apps skip `REALITY`
+  endpoints.
+* Server (`[reality]` in `node.toml`, set up by `deploy/reality-setup.sh`): `otter-node` embeds Xray-core
+  (v1.260327.0, only the features used, +5 MB) with a VLESS+REALITY inbound on **:443** whose only outbound is a
+  `freedom` redirect to an internal plain-HTTP listener on `127.0.0.1:<random port>`. That listener serves the same
+  mux as WSS (secret path, `<path>/peer`, site), so the peer handshake with node keys still runs inside the tunnel.
+  Unauthenticated connections are forwarded to the camouflage site `dest`. Idle timeout 24 h (peer sessions can be
+  quiet for long).
+* Client (on the dialing node): one in-process Xray instance per REALITY endpoint (VLESS outbound, REALITY, uTLS
+  `chrome`); the peer WebSocket (`ws://host:443<path>/peer`) runs over a stream from `core.Dial`, no local proxy port.
+* Camouflage site: a big foreign site with TLS 1.3, HTTP/2 and handshake records ≤ 8 KB (REALITY mirrors the
+  site's handshake and gives up above 8192 bytes; `www.microsoft.com` fails that, `dl.google.com` works).
+  `otter-node reality-check HOST...` tests all of it, including a loopback REALITY handshake through the site; run it
+  on the foreign node and on the domestic one.
+* Manifest carries: address, port, the node's secret path, VLESS UUID and short id (per node, from
+  `reality-setup.sh`), REALITY public key, server name, uTLS fingerprint (`chrome`).
 
 ### Node ↔ node
-Same port and transports as clients: a node dials a peer's endpoint at `<path>/peer` (WSS, verified
-with the peer's **pinned** certificate from the manifest), then runs a mutual Ed25519 challenge with
-node keys ([03](03-mesh-replication.md#peer-sync-protocol)). `WS_PLAIN` peer endpoints are dialed only
-with `[mesh] allow_plain = true` (development). From M7 a domestic node can be configured to reach
-foreign nodes over REALITY.
+A node dials a peer's endpoints at `<path>/peer`: WSS on the node port (verified with the peer's **pinned**
+certificate from the manifest) or REALITY on :443, then runs a mutual Ed25519 challenge with node keys
+([03](03-mesh-replication.md#peer-sync-protocol)). `WS_PLAIN` peer endpoints are dialed only with
+`[mesh] allow_plain = true` (development).
+
+Topology for a censored country (M7, D70, D71):
+
+```
+phone ──WSS (node port)──▶ domestic node (dial_out_only) ──REALITY :443──▶ foreign node
+                                                         └─ fallback: WSS (node port)
+```
+
+* The domestic node is `dial_out_only`: it dials every foreign node, none of them dials it. One session carries
+  both directions.
+* Endpoints are tried one by one in ranked order (last success within 7 days → admin `priority` → manifest order →
+  failed in the last 10 min → demoted), the same rule as on the phone; first success wins and is tried first next
+  time. The ranking lives in memory, so a restart starts from manifest order (WSS first).
+* Every attempt and every accepted peer session goes into the node's connectivity log (below).
 
 ## Network manifest
 
@@ -70,6 +93,7 @@ message NodeInfo {
   bytes node_id = 1; bytes node_pub = 2; string label = 3;
   bool  push_capable = 4;            // has an FCM key and can reach Google (otter-admin node set-push, D58)
   repeated Endpoint endpoints = 5;
+  bool  dial_out_only = 6;           // inside a censored network: dials peers, is never dialed (M7, D71)
 }
 message Endpoint {
   enum Kind { WSS = 0; REALITY = 1; WS_PLAIN = 2; }  // WS_PLAIN: development only, refused by release apps
@@ -111,14 +135,30 @@ record per-candidate stats (Room): last success/failure, RTT = connect-to-hello 
 * **Re-probe** every 30 min while connected (in practice the foreground; a wake-up session ends within 60 s): probe the other candidates
   (transport + hello, then close) and measure the current node with `ping`.
 * **Switch** if the best other candidate's RTT is < 70 % of the current one in 3 consecutive probes.
-* **Failure classification**: connect timeout / reset after N KB / TLS alert → endpoints with
-  repeated "reset after N KB" (typical throttling signature) are demoted for that network.
+* **Failure classification** (M7, D73; same classes on the nodes): `timeout`, `refused`, `reset` (before any
+  data), `reset_after_kb` (reset/EOF after ≥ 1 KB, or a connection that dies within 2 min after receiving ≥ 1 KB:
+  the throttling signature), `tls`, `handshake` (no hello), `ok`. An endpoint with ≥ 3 `reset_after_kb` within 24 h
+  is **demoted** for 24 h: it is tried after everything else (Room `endpoint_stats` throttle columns, per endpoint,
+  not per network). Cancellations (own reconnect, app closing) don't count.
 * **Wake-up path** (push or battery-saver job, M5): if the first candidate succeeded in the last 7 days and not
   failed since, it gets a 2 s head start; the others then start at the usual 250 ms stagger
   (`NodeSelector.race(headStartMs)`, `SyncEngine.startWake`). Saves battery when the usual node answers.
 * Exponential backoff when nothing works (1 s → 60 s, ±20 % jitter); immediate retry on
   network change.
-* *Not yet implemented* (M7): failure classification and demotion. The wake-up path is built (M5).
+* Every attempt is also written to the phone's connectivity log (below).
+
+## Connectivity log (M7, D74)
+
+Short, merged logs of connection outcomes; a repeat of the same result and class for the same (peer/node, endpoint,
+direction) updates the newest line (count, last time) instead of adding one; the newest 200 lines are kept.
+
+* **Nodes**: SQLite `netlog` (migration 0008), peer connections only (outbound dials per endpoint, accepted
+  sessions per listener `wss`/`reality`, throttled sessions, failed node handshakes); client connections are not
+  logged. `otter-node netlog [--limit N] [--json]`, e.g. `2026-11-20 10:02–14:55  ru-1  reality  in  ok  ×143`;
+  `deploy/status.sh` shows the last 5 lines per node.
+* **Phones**: Room `net_log` (DB v7) with node, endpoint, network (Wi-Fi / mobile / other), operator name, result,
+  class and RTT. Settings → «Журнал подключений» lists it (newest first); «Поделиться» sends it as plain text through
+  the share sheet. Nothing is uploaded automatically (V1.x may add it).
 
 ## Keep-alive & battery
 

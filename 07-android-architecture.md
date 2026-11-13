@@ -11,7 +11,7 @@
 | Local DB | Room + SQLCipher (key wrapped by Android Keystore) |
 | E2E | `org.signal:libsignal-android` (stores implemented on top of Room) |
 | Other crypto | Tink (Ed25519, streaming AEAD), Argon2kt (Argon2id) |
-| Networking | OkHttp WebSocket; libXray AAR for REALITY |
+| Networking | OkHttp WebSocket; libXray AAR for REALITY later (V1.x, D75: REALITY is node-to-node only in V1) |
 | Serialization | protobuf-javalite (generated from shared `/proto`) |
 | Background | WorkManager 2.11 (expedited `wake`, periodic `saver`), FCM (`firebase-messaging`); no persistent foreground service in V1 (D61) |
 | Media | CameraX / system photo picker, Coil (images), Media3 (playback), MediaRecorder (voice, AAC/m4a) |
