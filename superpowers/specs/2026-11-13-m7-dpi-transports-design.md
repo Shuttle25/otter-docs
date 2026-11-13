@@ -27,7 +27,12 @@ phone ──WSS :27443──▶ ru node (ru-1, dial_out_only) ──REALITY :443
 ## Manifest
 * `NodeInfo.dial_out_only` (bool, new field 6): other nodes never dial this node; it dials them. One replication
   session carries both directions (already true today), so nothing else changes.
-  `otter-admin node set-dial-out-only --label L [--off]`.
+  `otter-admin node set-dial-out-only --label L [--off]`. **Default off** (existing nodes, `node add`).
+* `deploy/add-node.sh` asks while installing a new node: «Is LABEL inside a censored network (e.g. Russia)? It will
+  dial out to the other nodes and is never dialed by them. [y/N]» (default No); `--dial-out-only` /
+  `--no-dial-out-only` answer it without a prompt (non-interactive runs default to No). A yes runs
+  `set-dial-out-only` before the manifest is signed, so it goes out in the same signature. Re-runs keep the stored
+  value and do not ask again.
 * REALITY endpoints use the existing `Endpoint` fields (kind `REALITY`, host, port, `vless_uuid`, `reality_pub`,
   `short_ids`, `server_names`, `fingerprint = "chrome"`, `priority`). Added with
   `otter-admin node add-reality --label L --host H --port 443 --pub B64 --server-name S [--short-id X]`
@@ -110,8 +115,9 @@ news (RU/EN draft in `dist/news/0.7.0.md`).
 ## Owner steps (each asked first; passphrases only in the owner's terminal)
 1. Upgrade eeee to 0.7.0; `otter-node reality keygen`; `reality-check` candidates; add `[reality]`; restart; health
    check (other services untouched).
-2. Install the domestic node (ru-1) with the existing deploy scripts; it joins the manifest.
-3. Manifest: `add-reality` for eeee, `set-dial-out-only` for the domestic node, `manifest sign` + `publish`.
+2. Install the domestic node (ru-1) with `add-node.sh` (answer **yes** to the dial-out-only question); it joins
+   the manifest.
+3. Manifest: `add-reality` for eeee, `manifest sign` + `publish`.
 4. Verify replication via REALITY (`otter-node netlog` on both), then the fallback by temporarily blocking eeee:443
    on the domestic node's firewall (and restoring it).
 5. Install app 0.7.0 on the phones through the news update.
