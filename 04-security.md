@@ -135,4 +135,4 @@ trusting the old key as soon as they see the new manifest.
 | Argon2id | `com.lambdapioneer.argon2kt` | — |
 | AEAD / streaming | Tink | — |
 | TLS | OkHttp / Conscrypt | `crypto/tls` |
-| REALITY | libXray (Xray-core via gomobile) | Xray-core (embedded) |
+| REALITY | libXray (Xray-core via gomobile), V1.x (D75) | Xray-core (embedded, M7) |

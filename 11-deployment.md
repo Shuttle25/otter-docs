@@ -71,8 +71,8 @@ Principles:
 * The domain never appears in public Certificate Transparency logs, which a public
   certificate would expose.
 * Trade-off: anyone probing `https://domain:27443/` sees a self-signed certificate. That's common
-  on non-standard ports, but less inconspicuous than a public one. REALITY (M7) is the answer
-  for heavy DPI.
+  on non-standard ports, but less inconspicuous than a public one. REALITY between nodes (M7, §13) is the
+  answer for heavy DPI on the link out of a censored country.
 
 ---
 
@@ -291,7 +291,9 @@ RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
-CapabilityBoundingSet=
+# :443 for REALITY (M7, D72) without root
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 ReadWritePaths=/var/lib/otter
 
 [Install]
@@ -324,9 +326,14 @@ Message contents never appear in logs; they don't exist on the server in readabl
 1. Copies the new binary to `/usr/local/bin/otter-node.new` and verifies its checksum on the server.
 2. Backs up the database with the **installed** binary (`otter-node backup` → `/var/backups/otter/pre-upgrade-<ts>.db`),
    so database migrations can be rolled back by restoring.
-3. `systemctl stop otter-node`, swaps binaries (keeps `otter-node.prev`), starts the node.
+3. `systemctl stop otter-node`, swaps binaries (keeps `otter-node.prev` and, since M7, `node.toml.prev`), starts
+   the node.
 4. Health check (`/usr/local/lib/otter/health.sh`: pinned hello on `127.0.0.1:<port>`, up to 20 s). If it fails:
-   restore `otter-node.prev` and the backed-up DB, restart; the bad binary stays as `otter-node.failed`.
+   restore `otter-node.prev`, `node.toml.prev` and the backed-up DB, restart; the bad binary stays as
+   `otter-node.failed`.
+
+Downgrading by hand below 0.7.0: remove the `[reality]` section from `node.toml` first (older binaries refuse unknown
+config keys and would not start).
 
 Exit codes: 0 upgraded, 2 rolled back (node still on the old version), 3 rollback failed (act now).
 
@@ -401,16 +408,17 @@ the SSH checks when a target is given. `install.sh` and `upgrade.sh` run the ser
 
 * SSH: key-only login, `PermitRootLogin prohibit-password`, optionally a non-standard port.
 * Automatic security updates: `unattended-upgrades`.
-* Inbound: only SSH and the node port, using ufw or the Hetzner/Linode cloud firewall.
+* Inbound: only SSH, the node port and (with REALITY, §13) the REALITY port, using ufw or the Hetzner/Linode cloud
+  firewall.
 * `node.key` and `tls.key` are readable only by root and the `otter` group; the network key is never on a server.
 * Servers hold no secrets that can read messages. A seized server exposes metadata ([04](04-security.md)),
   and its TLS key would let someone impersonate that node at the transport layer. Rotate it (§6). Message
   content stays end-to-end encrypted regardless.
 * **Blocking note:** connections to well-known foreign hosting ranges (Hetzner and Linode included)
   are a common target for throttling, and a rare port with a self-signed certificate is easier to
-  single out than 443 with a public certificate. That's acceptable for now; the 3-node layout with a
-  domestic node (M2) and REALITY (M7) are the planned answers. A bare-metal machine inside the
-  restricted network is a good candidate for that domestic node.
+  single out than 443 with a public certificate. The answer since M7: phones in the restricted network use a
+  domestic `dial_out_only` node, which reaches the foreign nodes over REALITY on :443 (§13). A bare-metal machine
+  inside the restricted network is a good candidate for that domestic node.
 
 ---
 
@@ -422,7 +430,7 @@ the SSH checks when a target is given. `install.sh` and `upgrade.sh` run the ser
 | M4 (done) | `/var/lib/otter/blobs/` holds photos until every reader has them (≤ 30 days); size disks for peaks (`[limits] user_quota`, default 2 GiB per member); optional `[limits]`/`[replication]` in `node.toml` (commented defaults in the template); not in backups |
 | M5 (done) | Optional `/etc/otter/fcm.json` (Firebase service account) on push-capable nodes, installed with `deploy/push-key.sh`; `[push]` in `node.toml`; DB migration 0006 runs on upgrade. Upgrade a node to M5 **before** `push-key.sh` (§12) |
 | M6 (done) | `/var/lib/otter/blobs/` also holds members' password backups (persistent blobs, ≤ 3 per member, counted in `user_quota`); nothing to configure; DB migration 0005 runs on upgrade. Upgrade all nodes (`upgrade-all.sh`) before relying on restore: an older node answers `auth.login` without `installed_ms` and does not know the backup methods |
-| M7 | REALITY needs its own port and is strongest on 443, which conflicts with D26. The M7 plan decides per node: a second rare port, or 443 where it is free |
+| M7 (done) | Optional `[reality]` in `node.toml` + `/etc/otter/reality.key` on foreign nodes, listening on :443 (`CAP_NET_BIND_SERVICE`; clients stay on the node port, D26 revised for REALITY only), set up with `deploy/reality-setup.sh` after the node runs 0.7.0; `dial_out_only` for a domestic node (`add-node.sh` asks); DB migration 0008 (`netlog`); `upgrade.sh` also rolls back `node.toml` (§13) |
 | M8 | `otter-node status`, `/metrics` on localhost; alerting examples (`backup` and `check` arrived in M1.5, D41) |
 
 ---
@@ -482,8 +490,8 @@ get LABEL | list | rm LABEL`. An already deployed node is registered with `hosts
 
 | Script | What it does |
 |--------|--------------|
-| `add-node.sh LABEL root@HOST --ip IP [--ip IPv6] [--domain D] [--wss-port P] [--ssh-port N] [--version V]` | Registers the node, signs the manifest if it doesn't list the node yet, records the host, waits for DNS (with `--domain`), builds the bundle (with `--version`), runs `push.sh` (install + checks), then publishes the manifest to the other nodes |
-| `status.sh` | One row per node: target, version, pinned hello, service state, `otter-node stats` counts, size of `/var/lib/otter`, PUSH (M5). Read-only; exit 1 on any problem |
+| `add-node.sh LABEL root@HOST --ip IP [--ip IPv6] [--domain D] [--wss-port P] [--ssh-port N] [--version V] [--dial-out-only\|--no-dial-out-only]` | Registers the node (for a new node asks whether it is inside a censored network → `dial_out_only`, M7), signs the manifest if it doesn't list the node yet, records the host, waits for DNS (with `--domain`), builds the bundle (with `--version`), runs `push.sh` (install + checks), then publishes the manifest to the other nodes |
+| `status.sh` | One row per node: target, version, pinned hello, service state, `otter-node stats` counts, size of `/var/lib/otter`, PUSH (M5); then the last 5 connectivity log lines per node (M7). Read-only; exit 1 on any problem |
 | `upgrade-all.sh VERSION [--only LABEL]...` | Builds the release if missing; per node detects the CPU architecture, skips nodes already on VERSION, runs `upgrade.sh`; prints a summary |
 | `hosts.sh` | The registry above |
 
@@ -545,3 +553,63 @@ is none, `-` when the node is unreachable over SSH.
 
 Not run against a real server yet (2026-11-12). Offline tests (`deploy/test/scripts_test.sh`, stubbed ssh) cover
 `push-key.sh`'s refusals (missing or non-service-account file, unknown host) and the PUSH column, not the install.
+
+## 13. REALITY and dial-out-only nodes (milestone M7 — done 2026-11-13)
+
+For a network with members inside a censored country (D70–D75). One-screen version: `otter-server/deploy/README.md`
+"REALITY and dial-out-only nodes".
+
+**Domestic node.** Install it with `add-node.sh` and answer **yes** to «Is LABEL inside a censored network (e.g.
+Russia)? It will dial out to the other nodes and is never dialed by them. [y/N]» (or pass `--dial-out-only`;
+without a terminal the answer is No). The flag goes into the same manifest signature; re-runs keep it. Existing
+node: `otter-admin node set-dial-out-only --label L [--off]` → `manifest sign` + `manifest publish`. Set it only
+when every node runs 0.7.0: an older node ignores the flag and keeps dialing.
+
+**REALITY on a foreign node** (node on 0.7.0+, `upgrade-all.sh` first). Choose the camouflage site from the node:
+
+```bash
+ssh root@203.0.113.10 /usr/local/bin/otter-node reality-check dl.google.com www.apple.com
+# ok   dl.google.com: tls1.3 h2 cert reality 12ms
+```
+
+It needs TLS 1.3, HTTP/2, a valid certificate and handshake records ≤ 8 KB; the check runs a REALITY handshake
+through the site on loopback. `www.microsoft.com` fails it (its certificate record is over 8 KB, 2026-11-13). Run
+it on the domestic node as well (the censor sees that SNI); pick a host that passes on both. Then:
+
+```bash
+deploy/reality-setup.sh fi-1 --dest dl.google.com           # --port 443 by default; --force replaces [reality]
+otter-admin manifest sign && otter-admin manifest publish    # your terminal (admin passphrase)
+```
+
+`reality-setup.sh LABEL --dest HOST [--port 443] [--force]` (SSH target from the hosts registry):
+
+1. runs `reality-check HOST` on the node; refuses an existing `[reality]` without `--force`;
+2. writes `node.toml.new` with `[reality]` (`listen`, `private_key_file = "/etc/otter/reality.key"`, `dest`,
+   `server_names`, a random short id and VLESS UUID), runs `otter-node reality keygen` (the private key is made on the
+   node, 0640 root:otter, never leaves it; an existing key is kept) and `otter-node check` on it;
+3. adds the drop-in `/etc/systemd/system/otter-node.service.d/reality.conf` (`CAP_NET_BIND_SERVICE`; new installs
+   have it in the unit), opens the port in ufw when ufw is active;
+4. keeps `node.toml.pre-reality`, swaps the config, restarts, and requires the health check and a `"reality on"`
+   log line; otherwise the previous config is restored and the node restarted;
+5. adds the endpoint with `otter-admin node add-reality` (host = the node's first recorded IP, the node's secret
+   path, `server_name`, short id, UUID; `fingerprint = chrome`). The WSS endpoint stays first in the manifest.
+
+Allow the port in the provider's cloud firewall too. **Re-installs:** `push.sh` / `add-node.sh` write a fresh
+`node.toml` without `[reality]`; run `reality-setup.sh LABEL --dest HOST --force` afterwards (the key file stays, so
+the manifest entry stays valid). There is no admin command to remove a REALITY endpoint yet.
+
+**Connectivity log.** `otter-node netlog` (as user `otter`, `--config /etc/otter/node.toml [--limit 50] [--json]`;
+safe while the node runs) prints the merged log of peer connections, newest first:
+
+```
+2026-11-20 10:02–14:55  ru-1  reality  in  ok  ×143
+```
+
+`fail` lines carry a class (`timeout`, `refused`, `reset`, `reset_after_kb` = throttling, `tls`, `handshake`) and a
+detail; an endpoint throttled 3× in 24 h is tried last for a day. `status.sh` prints the last 5 lines per node.
+
+**Rollback.** `upgrade.sh` restores `node.toml.prev` together with the old binary. For a manual downgrade below 0.7.0
+remove `[reality]` first; the REALITY endpoint left in the manifest then costs peers one failed dial before WSS.
+
+**Tests.** `deploy/test/scripts_test.sh` covers `reality-setup.sh` (stubbed ssh) and the add-node question; meshsim
+covers replication over REALITY, the WSS fallback, the camouflage probe (`internal/meshsim/reality_test.go`) and `dial_out_only` (`scenarios_test.go`). Not run on a VM or a real server yet (2026-11-13).

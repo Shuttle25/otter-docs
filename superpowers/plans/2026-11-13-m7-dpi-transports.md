@@ -273,7 +273,7 @@ Add `crypto/rand` to imports. `newUUID()` already exists in `state.go`.
 		fs.StringVar(&s.Host, "host", "", "public IP or name of the node")
 		fs.UintVar(&port, "port", 443, "REALITY port")
 		fs.StringVar(&s.Pub, "pub", "", "X25519 public key (otter-node reality keygen)")
-		fs.StringVar(&s.ServerName, "server-name", "", "camouflage site name, e.g. www.microsoft.com")
+		fs.StringVar(&s.ServerName, "server-name", "", "camouflage site name, e.g. dl.google.com")
 		fs.StringVar(&s.ShortID, "short-id", "", "REALITY short id (hex; random if empty)")
 		fs.StringVar(&s.UUID, "uuid", "", "VLESS UUID used in the node's [reality] (random if empty)")
 		if err := fs.Parse(a[2:]); err != nil {
@@ -1249,7 +1249,7 @@ type ServerConfig struct {
 	Listen      string   // ":443"
 	PrivateKey  string   // base64 RawURL
 	Dest        string   // camouflage "host:443": unauthenticated connections are forwarded there
-	ServerNames []string // SNI values accepted, e.g. ["www.microsoft.com"]
+	ServerNames []string // SNI values accepted, e.g. ["dl.google.com"]
 	ShortIDs    []string
 	VlessUUID   string
 	Forward     string // internal plain-HTTP listener, "127.0.0.1:PORT"
@@ -2070,7 +2070,7 @@ export SSH_PORT=$TARGET_PORT
 ip=$(admin_node_ip "$label")
 [[ -n "$ip" ]] || die "no IP recorded for $label (otter-admin node set-ip)"
 say "checking the camouflage site $dest from $label"
-remote "$TARGET" "/usr/local/bin/otter-node reality-check $dest" || die "$dest failed the check on $label; pick another (e.g. www.microsoft.com, dl.google.com)"
+remote "$TARGET" "/usr/local/bin/otter-node reality-check $dest" || die "$dest failed the check on $label; pick another (e.g. dl.google.com, www.apple.com)"
 sid=$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')
 vless=$(cat /proc/sys/kernel/random/uuid)
 say "configuring REALITY on $label (:$port, camouflage $dest)"
@@ -2720,12 +2720,12 @@ modules already depend on `core:data`).
 - [ ] Server: `make check`, `go test ./... -count=1`, `bash deploy/test/scripts_test.sh`, meshsim REALITY tests 3×
   green. `go build` binary size recorded.
 - [ ] Local two-node run (dev mesh, `.dev-mesh/`): node `fi` with `[reality]` on a high port (`listen = "127.0.0.1:24443"`,
-  camouflage `dest = "www.microsoft.com:443"` if internet is available, otherwise a local TLS 1.3 server), node
+  camouflage `dest = "dl.google.com:443"` if internet is available, otherwise a local TLS 1.3 server), node
   `ru` `dial_out_only`, WSS from `ru` to `fi` blocked with an `iptables`/`nft` rule **on this PC only** (or by
   giving `ru` a manifest whose `fi` WSS endpoint points to a closed port). Emulator A on `ru`, emulator B on `fi`
   exchange messages both ways; `otter-node netlog` on both shows the REALITY session; A's «Журнал подключений» shows
   its attempts; «Поделиться» produces text.
-- [ ] `curl -vk --resolve www.microsoft.com:24443:127.0.0.1 https://www.microsoft.com:24443/` against `fi` shows the
+- [ ] `curl -vk --resolve dl.google.com:24443:127.0.0.1 https://dl.google.com:24443/` against `fi` shows the
   camouflage site's certificate (when using the real camouflage).
 - [ ] App 0.6.0 → 0.7.0 update on the emulator through a dev news announcement keeps account, chats and news (Room
   6→7 migration).
@@ -2811,7 +2811,7 @@ Otter 0.7.0
   `dist/`, nothing deleted.
 - [ ] **Step 2 (ask):** `deploy/upgrade-all.sh 0.7.0 --no-news` → eeee upgraded, health ok. Check the host's other services:
   `ss -ltnp` shows them unchanged.
-- [ ] **Step 3 (ask):** On eeee: `otter-node reality-check www.microsoft.com dl.google.com www.apple.com`; on ru-1
+- [ ] **Step 3 (ask):** On eeee: `otter-node reality-check dl.google.com www.apple.com`; on ru-1
   (after it is installed, or via a one-off copy of the binary to `/tmp` there) the same; pick a host passing on both.
 - [ ] **Step 4 (ask):** `deploy/reality-setup.sh eeee --dest <host>` → "REALITY is on".
 - [ ] **Step 5 (ask):** `deploy/add-node.sh <label> root@<itsoft-ip> --ip <itsoft-ip> --version 0.7.0` → answer

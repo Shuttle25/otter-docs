@@ -26,7 +26,7 @@ Each milestone ends with something runnable and tested.
 | M5 | Push | `PUSH_TOKEN`, FCM HTTP v1 sender, coalescing, `push_capable` rule (D58), `push-key.sh`, `node set-push` | one build (Firebase optional), FCM wake + battery-saver fallback (no Instant mode in V1), notifications with reply/read, app version | message wakes a sleeping phone in < 5 s on FCM — **done 2026-11-12** (see M5 notes; owner rows 12–17 incl. the < 5 s measurement open) |
 | M6 | Backup & restore | backup meta, auth, rate limits, eager replication | password backup, restore flow, session reset | wipe phone → restore with username + password → history back, contacts can keep chatting — **done 2026-11-12** (see M6 notes; two-phone checks open) |
 | M6.5 | Otter news | `ANNOUNCEMENT` record signed by a news key listed in the manifest, validation + replication, `otter-admin announce`, push to all, APK served by the nodes | read-only «Новости Выдры» chat, optional «Обновить» button (APK from the nodes, SHA-256 checked), notification | admin sends one announcement from the PC → every member's app shows it (and a notification on FCM phones) within seconds; a forged announcement is rejected — **done 2026-11-13** (see M6.5 notes; two-phone and production rows open) |
-| M7 | DPI transports | embedded Xray REALITY inbound/outbound, decoy site, CDN-friendly WSS | libXray integration, endpoint demotion on throttling | works with only REALITY reachable; works with only CDN-WSS reachable |
+| M7 | DPI transports | embedded Xray REALITY inbound/outbound between nodes, `dial_out_only` domestic node, per-endpoint ranked dialing + demotion, connectivity log, `reality-setup.sh` (CDN-WSS postponed, D75) | failure classes + demotion on throttling, «Журнал подключений» (no REALITY in the app, D75) | with direct WSS domestic → foreign blocked, messages flow phone ↔ domestic node ↔ REALITY ↔ foreign node ↔ phone; probes see the camouflage site — **done 2026-11-13** (see M7 notes; real-network rows open) |
 | M8 | Hardening & ops | revocation, limits, metrics, status, deploy scripts | app lock, settings polish, network status screen | 3-node deployment guide followed from scratch by someone else |
 
 Recommended build order is exactly M0→M8 (M6.5 before M7, owner request); M7 can move earlier if blocking is immediate
@@ -35,6 +35,10 @@ Recommended build order is exactly M0→M8 (M6.5 before M7, owner request); M7 c
 ## V1.x (after M8)
 
 * Files and voice messages in the UI (protocol/node already support generic blobs; D18).
+* REALITY in the app (libXray via gomobile, SOCKS5 on `127.0.0.1` with random per-session credentials), if a
+  domestic node is not enough (D75).
+* CDN-fronted WSS (`via_cdn`), if phones ever need to reach a foreign node directly (D75).
+* Optional upload of the phone's connectivity log to a node (today: view + share only, D74).
 
 ## V2 (later)
 
@@ -54,6 +58,76 @@ on the phone.
 ## Open questions
 
 None currently.
+
+## M7 notes (2026-11-13)
+
+Built: server — `NodeInfo.dial_out_only` (6) + `otter-admin node set-dial-out-only` / `node add-reality` (`node list`
+shows the flags); `internal/netlog` (failure classes, `Classify`) and the merged 200-line `netlog` table (migration
+0008); per-endpoint ranked dialing with demotion (`replication.MultiDialer`, `Ranker`), inbound/outbound/throttle
+logging, `dial_out_only` skipping; `internal/reality` (embedded Xray-core REALITY server and client, keygen,
+camouflage check); `[reality]` config, `otter-node reality keygen` / `reality-check` / `netlog`, `otter-node check`
+verifies the key file; meshsim REALITY / fallback / probe / dial-out-only tests; deploy — `reality-setup.sh`,
+`add-node.sh` dial-out-only question, `upgrade.sh` config rollback, netlog in `status.sh`, `CAP_NET_BIND_SERVICE` in
+the unit. App — `FailureClass` + throttling demotion in `NodeSelector` / `ConnectionManager`, `NetLog` hooks, Room v7
+(`net_log`, throttle columns in `endpoint_stats`, migration 6 → 7), Settings → «Журнал подключений» with
+«Поделиться», 0.7.0 / versionCode 7. Decisions D70–D75 (D26 revised for REALITY). Plan:
+`docs/superpowers/plans/2026-11-13-m7-dpi-transports.md`; spec:
+`docs/superpowers/specs/2026-11-13-m7-dpi-transports-design.md`. Checklists: `otter-server/docs/m7-manual-test.md`,
+`otter-android/docs/m7-manual-test.md`.
+Commits: server `7587991`, `dada893`, `b90ec17`, `e49f19b`, `f44b3f3`, `a3ef6d1`, `4e68ec8`, `44b7a40`, `ecd3858`
+(fixes from the local run), `0f1322b` (checklists); android `a957374`, `caca10a`, `7b14110`, `61d4a76` (checklist).
+
+Versions: `github.com/xtls/xray-core v1.260327.0` (Xray 26.3.27); it requires `golang.org/x/oauth2` 0.30 → **0.34.0**
+and `cloud.google.com/go/compute/metadata` 0.3 → 0.9. `otter-node` (`-s -w`): amd64 14.3 → **19.6 MB** (19 558 562
+bytes), arm64 **18.2 MB** (18 219 170 bytes, +4.8 MB); the plan expected +20–30 MB. 564 app tests green.
+
+Local run (2026-11-13, development PC, throwaway two-node network `fi` + `ru`): `ru` (dial-out-only) could not reach
+`fi` over ws (manifest port closed), replicated over REALITY; a curl probe of the REALITY port saw the camouflage
+certificate (`CN=*.google.com`); stats equal on both nodes. Emulator: 0.6.0 → 0.7.0 by `adb install -r` kept account
+and chats; «Журнал подключений» and «Поделиться» work; switching to `fi` logged the refused `ru` attempt.
+
+Deviations / findings:
+- **Xray without its JSON loader:** `core.Config` is built as protobuf with only dispatcher, proxyman, policy, VLESS
+  in/out, freedom, TCP and REALITY (no `infra/conf`, no `distro/all`) → +5 MB instead of +20–30 MB. Xray logs go to
+  slog at warn/error only. `serverConfig` validates every field.
+- **Idle timeout 24 h** instead of Xray's 300 s: peer sessions have no keep-alive and would be cut.
+- **REALITY client:** `core.Dial` with `context.WithoutCancel` (core.Dial ties the tunnel to the context; the dial
+  timeout's cancel would kill established links); no SOCKS5 inbound as the spec described. One Xray instance per
+  endpoint config for the process lifetime. The first REALITY connection after start may wait ≤ 5 s (the reality
+  library probes `dest` once). Two concurrent REALITY dials at `ru` start, dedup kept one (cosmetic).
+- **Camouflage limit:** `www.microsoft.com` passed the TLS 1.3 / h2 / certificate checks but REALITY cannot mirror it
+  (8273-byte Certificate record > xtls/reality's 8192 limit → "handshake did not complete"). `reality-check` now runs
+  a loopback REALITY handshake through the site (`ecd3858`); examples in scripts and docs use `dl.google.com`.
+- `nodecheck`: a REALITY endpoint shares the WSS secret path, so the endpoint check matched it and failed on pins;
+  REALITY endpoints are now skipped there, and the check verifies the key file against the manifest's public key.
+- `add-reality` refused `--plain` dev nodes (path only from WSS); now also from `WS_PLAIN` (`44b7a40`).
+- Ranking/logging: netlog trimmed by `last_ms DESC, id DESC` (merging lines survive); a cancelled context
+  (shutdown) is neither logged nor ranked; inbound handshake failures are logged by host without port (so they
+  merge); a node-handshake failure after a successful dial is logged, not ranked down; an outbound session dropped
+  < 2 min after ≥ 1 KB counts as `reset_after_kb`. Server ranking is in memory (restart = fresh).
+- Fixed on the way: the flaky `TestRetryLaterDoesNotLoseRecords` (race in the test harness gates) and a real data race
+  between the session cursor and `Status()` (`setCursor`).
+- meshsim: the censor acts only after the first ru → fi session (else a race); the fallback test first teaches the
+  ranking REALITY, then flips (WSS is first in the endpoint list).
+- Deploy: `otter-admin node env` prints `OTTER_IP`; `reality-setup.sh` validates `--dest`/`--port`, cleans up with a
+  trap, sends `health.sh` output to stderr, uses `grep >/dev/null` instead of `-q` (SIGPIPE under pipefail), runs
+  `ufw allow` when ufw is active and reminds about the cloud firewall. `status.sh` uses one SSH call per node.
+  Re-running `push.sh` / `add-node.sh` writes `node.toml` without `[reality]` → `reality-setup.sh --force` (key kept).
+- App: `core:network` stays plain Kotlin; `ConnectionManager` ignores `CancellationException` closes (its own
+  reconnect is not throttling), throttle window 2 min; the throttle window restarts when the count is 0; network type
+  from `core.data.network.CurrentNetwork`; Room columns snake_case, schema `7.json` + `migrate6To7` test; demotion is
+  per endpoint, not per network; icon `AutoMirrored.ListAlt`.
+
+Open:
+- Real-network rows (server checklist and phone rows 10–14): eeee with REALITY on :443 (other services untouched), the
+  domestic node installed as dial-out-only, REALITY carrying replication with direct WSS blocked, a day on MTS /
+  Beeline mobile, both phones on 0.7.0 via the news update. The VM e2e was not run for M7.
+- News across the 0.6.0 → 0.7.0 update not checked on the emulator (no news key on the local network); check on the
+  phones.
+- Two concurrent REALITY dials at start (cosmetic, see above).
+- The old `TestGraph` coroutine leak in the Android tests makes `runTest` flaky (`RoomNetLogTest` uses
+  `runBlocking`); not fixed.
+- No admin command to remove a REALITY endpoint (`add-reality` can only replace it).
 
 ## M6.5 notes (2026-11-13)
 

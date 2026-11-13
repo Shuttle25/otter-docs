@@ -37,6 +37,19 @@ reset after a session lasted ≥ 1 min). Both directions may connect; **one sess
 one dialed by the lower node_id** (two sessions in the same direction → the newest). This survives
 one-way blocking: whichever side can reach the other dials.
 
+**Dial-out-only nodes (M7, D71).** A node marked `dial_out_only` in the manifest (`otter-admin node
+set-dial-out-only`, asked by `deploy/add-node.sh`) is never dialed by the others; it dials every peer itself (two
+dial-out-only nodes still dial each other). Use it for a domestic node inside a censored network; set it only once
+every node runs 0.7.0 (older nodes ignore the flag).
+
+**Per-endpoint dialing (M7, D73).** A dial tries the peer's usable endpoints one at a time (WSS pinned, REALITY on
+:443 when the peer has one, `WS_PLAIN` only with `allow_plain`), each with a 15 s timeout, in ranked order: last
+success within 7 days → admin `priority` → manifest order → failed in the last 10 min → demoted (≥ 3
+`reset_after_kb` in 24 h, demoted for 24 h; an outbound session dropped within 2 min after receiving ≥ 1 KB counts
+as one). The first endpoint that connects is used and goes first next time. The ranking is in memory. Every
+attempt, accepted session and failed node handshake is written to the connectivity log `netlog` (D74,
+[05](05-transport.md#connectivity-log-m7-d74)).
+
 Handshake (`proto/otter/v1/peer.proto`):
 
 ```

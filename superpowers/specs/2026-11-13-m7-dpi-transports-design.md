@@ -47,12 +47,14 @@ phone ──WSS :27443──▶ ru node (ru-1, dial_out_only) ──REALITY :443
   [reality]
   listen = ":443"
   private_key_file = "/etc/otter/reality.key"   # 0640 root:otter, never leaves the node
-  dest = "www.microsoft.com:443"                # camouflage: real site that probes are forwarded to
-  server_names = ["www.microsoft.com"]
+  dest = "dl.google.com:443"                    # camouflage: real site that probes are forwarded to
+  server_names = ["dl.google.com"]
   short_ids = ["…"]
   vless_uuid = "…"
   ```
   The section is optional; without it no REALITY listener starts.
+  (Example changed from `www.microsoft.com` during implementation: its 8273-byte Certificate record exceeds REALITY's
+  8192-byte limit, so it passes plain TLS checks but REALITY cannot mirror it; `reality-check` now tests that, D72.)
 * Authenticated VLESS streams go to an internal plain-HTTP listener on `127.0.0.1` (random port) that serves the
   same mux as WSS (secret path, `/peer`, site). REALITY already encrypts; the peer handshake (mutual Ed25519 with
   node keys) still runs inside, so a leaked VLESS UUID gives no node access.
