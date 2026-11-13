@@ -25,7 +25,7 @@ Each milestone ends with something runnable and tested.
 | M4 | Photos | blobs (generic), chunk upload/download, peer pull/proxy, quotas | photo send (gallery/camera), preview+caption, image viewer, save to gallery, cache rules (D24) | 20 MB photo through mesh while a node is down — **done 2026-11-11** (see M4 notes; two-phone checks open) |
 | M5 | Push | `PUSH_TOKEN`, FCM HTTP v1 sender, coalescing, `push_capable` rule (D58), `push-key.sh`, `node set-push` | one build (Firebase optional), FCM wake + battery-saver fallback (no Instant mode in V1), notifications with reply/read, app version | message wakes a sleeping phone in < 5 s on FCM — **done 2026-11-12** (see M5 notes; owner rows 12–17 incl. the < 5 s measurement open) |
 | M6 | Backup & restore | backup meta, auth, rate limits, eager replication | password backup, restore flow, session reset | wipe phone → restore with username + password → history back, contacts can keep chatting — **done 2026-11-12** (see M6 notes; two-phone checks open) |
-| M6.5 | Otter news | `ANNOUNCEMENT` record signed by the network admin key, validation + replication, `otter-admin announce`, urgent push to all | read-only «Новости Otter» chat, optional «Обновить» button (APK link + version), notification | admin sends one announcement from the PC → every member's app shows it (and a notification on FCM phones) within seconds; a forged announcement is rejected — **next; brief below, owner request 2026-11-12** |
+| M6.5 | Otter news | `ANNOUNCEMENT` record signed by a news key listed in the manifest, validation + replication, `otter-admin announce`, push to all, APK served by the nodes | read-only «Новости Выдры» chat, optional «Обновить» button (APK from the nodes, SHA-256 checked), notification | admin sends one announcement from the PC → every member's app shows it (and a notification on FCM phones) within seconds; a forged announcement is rejected — **done 2026-11-13** (see M6.5 notes; two-phone and production rows open) |
 | M7 | DPI transports | embedded Xray REALITY inbound/outbound, decoy site, CDN-friendly WSS | libXray integration, endpoint demotion on throttling | works with only REALITY reachable; works with only CDN-WSS reachable |
 | M8 | Hardening & ops | revocation, limits, metrics, status, deploy scripts | app lock, settings polish, network status screen | 3-node deployment guide followed from scratch by someone else |
 
@@ -55,29 +55,50 @@ on the phone.
 
 None currently.
 
-## M6.5 brief for the planner (owner request 2026-11-12)
+## M6.5 notes (2026-11-13)
 
-**Request (owner):** "a service account which updates all users about new features". Brainstorm the details with the
-owner, then plan; this brief is the starting point, not a decided design.
+Built: server — records `ANNOUNCEMENT` (15) / `ANNOUNCEMENT_DELETED` (16) with validation against `Manifest.news_keys`
+(6), store with `news_deleted` and revocation (`DropNewsExcept`), `news.publish` / `news.list` / event `news`, news push
+under the D58 duty rule, APK store + `apk.get` + `otter-node apk import`; admin — `news init|show|revoke` (keyring,
+go-keyring v0.2.6), `announce` (to every node, `--list`, `--delete`), manifest news keys; deploy —
+`release-apk.sh`, `news-dialog.sh`, `upgrade-all.sh --no-news`; meshsim news tests. App — `AnnouncementVerifier`,
+`NewsRepository` (news as `NEWS` messages, DB stays v6), news chat UI with link confirmation, channel «Новости»,
+`ApkUpdater`/`ApkInstaller`, release signing via `keystore.properties`, 0.6.0 / versionCode 6. Decisions D64–D69.
+Plan: `docs/superpowers/plans/2026-11-12-m6-5-otter-news.md`; spec:
+`docs/superpowers/specs/2026-11-12-m6-5-otter-news-design.md`. Checklist: `otter-android/docs/m6.5-manual-test.md`.
+Commits: server `508bb2e`, `af622a6`, `166dae0`, `07d704b`, `493ab6e`, `6eff863`, `c7e3218`, `f8751d1`; android
+`ba8748a`, `4399a4c`, `f1b88fe`, `9326ce1` (build fix), `2329855`, `bcf10ea`, `2cccbff`, `6160bfb`, `6918f8c` (fixes
+from the emulator run), `9fac69b` (checklist).
 
-**Suggested shape (to confirm in brainstorming):**
-- Not a real user account: a bot would need a client running 24/7 holding Signal sessions with every member. Instead a
-  new record type `ANNOUNCEMENT` signed by the **network admin key** (the key that signs the manifest, D10/D17), sent
-  from the admin PC with `otter-admin announce` (title, text, optional `app_version` + APK URL), published through
-  any node like `manifest publish`, replicated by the mesh, kept forever (small, rare). Nodes reject anything not
-  signed by the network key; apps verify the signature again with the network public key they already pin.
-- Trade-off to state to the owner: announcements are **signed, not end-to-end encrypted** — nodes can read them.
-  Acceptable for release notes sent to every member; never use it for private content.
-- App: a pinned, read-only conversation «Новости Otter» (system avatar from the asset pack, no composer); unread
-  badge; a notification through the M5 path (nodes send an urgent push to every push-registered device, coalesced,
-  D58 sender rule); an optional «Обновить» button that opens the APK link when `app_version` > the running
-  `versionName` (ties into the M5 version label, D63; APK distribution D15). New members see past announcements.
-- Questions for the owner: who may announce (admin key only, or also a delegated "news" key so the admin key stays
-  offline)? Should old announcements be deletable/editable? Links: allowed domains only? Russian only? Should the
-  app also show a one-time «Что нового» sheet after it updates itself to a new version (local, no network)?
-- Done when (proposal): `otter-admin announce` on the PC → every member's app shows the news in «Новости Otter»
-  within seconds on FCM phones (15 min in battery-saver mode); a record signed by any other key is rejected by nodes
-  and apps (meshsim + unit tests); the «Обновить» button appears only on older versions.
+Emulator run (2026-11-13, `Medium_Phone_API_35`, dev mesh): rows 1, 2, 4–10 pass; 3 (FCM timing) and 11 (TalkBack walk)
+need real phones. Update flow: corrupt APK on the nodes → «Файл повреждён» and the file deleted; correct APK → installer
+→ 0.6.1 (7) with account and news kept. Battery-saver build got the notification after 12 min 25 s.
+
+Deviations / findings:
+- An announcement is named by the hex of its 16-byte record id (the plan's author‖id prefix is the same for every
+  announcement of one key). Records no node accepted are not kept in the admin dir; deletions are saved as
+  `news/<target>.del` and listed as [deleted]. `announce` validates locally before signing.
+- `Store.Apply` returns true for an announcement already deleted (removed at once), so the push decision checks that
+  the announcement is still visible. Fixed a data race in `Store.DropNewsExcept` (count captured after ctx cancel →
+  atomic); the janitor and `TakePrekeys` use the same capture pattern and are worth a look.
+- `otter-node apk import` does not open the DB (as root next to a running node it would leave root-owned -wal/-shm).
+- `news-dialog.sh`: Latin `p` also skips, EOF cancels, edits are saved back to the draft, `--apk` requires
+  `--version-code`; a failed or cancelled dialog does not fail the release. `release-apk.sh` checks every SSH target
+  first and prints the dialog command when run without a terminal.
+- Build: the owner's `google-services.json` has no `app.ottermsg.staging` client; variants whose applicationId is not
+  in it now build without google-services and with `FIREBASE = false` (`9326ce1`).
+- App: the APK FileProvider is a subclass `ApkFileProvider` (the manifest merger would clash with the photos provider),
+  authority `${applicationId}.files`, cache path `apk/`. News notifications use their own query (newest unread NEWS
+  within 3 days). Strings are duplicated per module. Release builds without `keystore.properties` are debug-signed.
+- Emulator fixes: the news chat is dated by its newest announcement, not by arrival (a later member saw it on top);
+  it is hidden while empty; its notification is cleared on delete/revoke.
+- Dev mesh: `manifest publish` and `announce` need `--allow-plain` (plain `ws://`).
+- Open: the downloaded APK stays in the app cache until the next update replaces it or Android clears the cache.
+- Exported WebP assets total ~580 KB (over the 400 KB note already before the news avatar).
+
+Owner steps (Task 14): release keystore, `upgrade-all.sh 0.6.0 --no-news` on eeee, real `news init` + `manifest
+sign` in the owner's terminal, phones moved to release signing (backup → uninstall → install → restore), first
+announcement with `release-apk.sh`.
 
 ## M1 notes (2026-11-11)
 

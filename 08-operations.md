@@ -32,6 +32,9 @@ otter-admin node add --label fi-1 \
                                             # generates node.key + reality keys, prints node bundle
 otter-admin node remove fi-1
 otter-admin node set-push --label fi-1 [--off]   # M5: mark push_capable (after deploy/push-key.sh)
+otter-admin news init | show | revoke --pub HEX  # M6.5: news key in the desktop keyring (D65); then manifest sign
+otter-admin announce --ru ru.txt --en en.txt [--apk F --version-name V --version-code N]
+otter-admin announce --list | --delete ID_PREFIX # news to every node (D66, D67)
 otter-admin manifest sign                   # bump version, write manifest.bin
 otter-admin manifest publish --via <node>   # push new manifest into the mesh
 otter-admin invite bootstrap                # first user's invite (QR in terminal + link)
@@ -58,8 +61,10 @@ upgrades, backups, health checks) and `otter-server/deploy/README.md` (one-scree
 * Protocol is versioned (`hello` carries protocol version; protobuf fields only added, never reused).
 * Roll nodes one at a time; mixed versions must interoperate for ≥1 minor version.
 * `min_app_version` in manifest forces app update only for breaking changes.
-* App updates are distributed as APK (Obtainium / direct link / F-Droid-style repo);
-  Google Play optional.
+* App updates are distributed as APK. Since M6.5 the nodes serve it: `deploy/release-apk.sh VERSION APK` imports a
+  release-signed APK into every node and offers an announcement with an «Обновить» button; phones download it over
+  their pinned connection and check its SHA-256 (D68, D69). `upgrade-all.sh` offers the same news dialog
+  (`--no-news` skips). Google Play optional.
 
 ## Backups of nodes
 

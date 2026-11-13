@@ -64,6 +64,8 @@ message RecordBody {
 | `BLOB_META` | user | size, chunk_size (262144), chunk_sha256[] (one per chunk), readers[] (1–100 user ids, not the author); body `expires_ms` ≤ created + 31 d | The record key (author‖id) is the blob key (D44); chunks replicate separately |
 | `BLOB_FETCHED` | user (reader) | blob_key | After a verified download; all readers → the blob is deleted everywhere (D45) |
 | `BACKUP_META` (type 10) | user | `BackupMeta{version, salt (16 B), kdf_m_kib (19456–262144), kdf_t (1–10), kdf_p (1–4), auth_verifier (32 B) = SHA-256(auth_secret), blob_key (32 B, starts with the author id), size}` | Latest `version` wins (D50); accepted only when its blob is a persistent blob of the author already on the node; see [04](04-security.md) |
+| `ANNOUNCEMENT` (type 15) | news key (`ID16(news pub)`) | `Announcement{text_ru, text_en, update?: AppUpdate{version_name, version_code, sha256, size}}`; texts ≤ 4000 runes, one non-blank | Valid only while the key is in the current manifest's `news_keys`; kept forever; not E2E encrypted (M6.5, D64–D66) |
+| `ANNOUNCEMENT_DELETED` (type 16) | news key | `AnnouncementDeleted{target}` (record key of the announcement) | Kept forever; wins over an announcement that arrives later (D66) |
 | `MANIFEST` | network | see [05](05-transport.md) | Highest version wins |
 | `REVOCATION` | network | user_id, reason | Node refuses that user afterwards |
 | `INVITE_RIGHTS` | network | user_id, can_invite, version | Overrides `can_invite` from directory entry |
@@ -236,10 +238,13 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 | `backup.fetch{username, auth_secret}` | **public.** → `BackupFetchResponse{backup_meta, blob_meta}` and a grant on this connection to `blob.get` that one blob (as its owner). Wrong secret or no backup → `UNAUTHORIZED`; 5 failures per username per hour and 20 per day per node → `RETRY_LATER` "too many attempts" |
 | `backup.publish{Record BACKUP_META}` | logged in; `INVALID` unless the blob is a persistent blob of the author already on this node |
 | `push.register{Record PUSH_TOKEN}` | `RecordRequest` with the signed `PUSH_TOKEN` (M5, D60); the app sends it after login only when its FCM token changed. A pre-M5 node answers INVALID "unknown method" (harmless) |
+| `news.publish{Record}` | **public**, like `manifest.publish`: an ANNOUNCEMENT or ANNOUNCEMENT_DELETED signed by a current news key; idempotent; `otter-admin announce` sends it to every node (D67) |
+| `news.list` → `RecordBatch` | logged in: every stored ANNOUNCEMENT and ANNOUNCEMENT_DELETED, oldest first (D67) |
+| `apk.get{sha256, index}` → `ApkChunk{data, total_size}` | logged in: 1 MiB chunk of an APK imported with `otter-node apk import`; unknown hash / index past the end → NOT_FOUND (D68) |
 | `ping` | keep-alive / RTT measurement |
 
 Events: `hello`, `envelope` (mailbox delivery, batched), `manifest` (newer version available),
-`directory` (changes), `prekeys_low`.
+`directory` (changes), `prekeys_low`, `news` (`Empty`: an announcement was accepted or dropped → re-fetch `news.list`, D67).
 
 Status codes: 0 OK, 1 retry-later, 2 unauthorized, 3 invalid-signature, 4 quota, 5 not-found,
 6 revoked, 7 conflict (e.g. username taken).

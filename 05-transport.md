@@ -64,6 +64,7 @@ message Manifest {
   bytes  network_pub = 3;
   repeated NodeInfo nodes = 4;
   uint32 min_app_version  = 5;
+  repeated bytes news_keys = 6;      // Ed25519 keys allowed to sign announcements (M6.5, D65)
 }
 message NodeInfo {
   bytes node_id = 1; bytes node_pub = 2; string label = 3;

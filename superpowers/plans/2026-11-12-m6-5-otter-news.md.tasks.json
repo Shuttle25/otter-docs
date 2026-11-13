@@ -1,0 +1,135 @@
+{
+  "planPath": "docs/superpowers/plans/2026-11-12-m6-5-otter-news.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: Branches and protocol schema",
+      "status": "completed",
+      "description": "**Goal:** Both repos on `m6-5-news`; the new protobuf messages exist in Go and Kotlin.\n\nSee plan section 'Task 1: Branches and protocol schema'.\n\n```json:metadata\n{\"files\": [\"otter-server/proto/otter/v1/records.proto\", \"otter-server/internal/proto/otterv1/*.pb.go\", \"otter-android/core/proto/src/main/proto/otter/v1/*.proto\"], \"verifyCommand\": \"`cd otter-server && make gen && git diff --stat && make check` \u2192 all packages ok.\", \"acceptanceCriteria\": [\"`git branch --show-current` prints `m6-5-news` in both repos (created from `main`).\", \"`make -C otter-server gen check` passes; `./gradlew :core:proto:build` passes.\", \"No existing field number changes.\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Server \u2014 validate announcements",
+      "status": "completed",
+      "description": "**Goal:** `records.Validator` accepts ANNOUNCEMENT / ANNOUNCEMENT_DELETED only when signed by a news key of the current\n\nSee plan section 'Task 2: Server \u2014 validate announcements'.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/records/validate.go\", \"otter-server/internal/records/validate_test.go\"], \"verifyCommand\": \"`go test ./internal/records/ -run 'Announcement|NewsDeleted' -v` \u2192 PASS.\", \"acceptanceCriteria\": [\"A good announcement (RU only, EN only, both, with update) validates.\", \"Wrong signer, unknown news key (`ErrUnknownNewsKey`), `News == nil` (`ErrUnknownNewsKey`), blank texts, a text\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Server \u2014 store announcements, deletions, revocation",
+      "status": "completed",
+      "description": "**Goal:** Announcements are stored forever; a deletion removes its target (also when it arrives first); a manifest\n\nSee plan section 'Task 3: Server \u2014 store announcements, deletions, revocation'.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/store/migrations/0007_news.sql\", \"otter-server/internal/store/news.go\", \"otter-server/internal/store/typed.go\", \"otter-server/internal/store/news_test.go\"], \"verifyCommand\": \"`go test ./internal/store/ -run News -v` \u2192 PASS.\", \"acceptanceCriteria\": [\"`News()` returns stored ANNOUNCEMENT and ANNOUNCEMENT_DELETED records, oldest first.\", \"Deletion after the announcement removes it; deletion before it makes the later announcement disappear on apply.\", \"`DropNewsExcept(keep)` deletes records of types 15/16 whose author is not in `keep` and returns the count; an\", \"`PushTargets()` lists every (user, device) in `push_tokens`.\", \"Announcements are not `expiring()` (they never leave the oplog by age).\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Server \u2014 service, gateway, push on news",
+      "status": "completed",
+      "description": "**Goal:** Nodes accept news from the admin (`news.publish`), serve `news.list`, send the `news` event, push to every\n\nSee plan section 'Task 4: Server \u2014 service, gateway, push on news'.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/service/news.go\", \"otter-server/internal/service/news_test.go\", \"otter-server/internal/gateway/news_test.go\", \"otter-server/internal/service/service.go\"], \"verifyCommand\": \"`go test ./internal/service/ ./internal/gateway/ -run News -v` \u2192 PASS; `make check` \u2192 PASS.\", \"acceptanceCriteria\": [\"`PublishNews` accepts a valid announcement/deletion (idempotent), rejects other record types and unknown keys\", \"`ApplyReplicated` of an announcement from an unknown news key returns `(false, nil)`.\", \"A new manifest without the key \u2192 the key's records are gone from `News()` and `Notify.News()` fires.\", \"A new announcement wakes every push target that is not online, only under the D58 duty rule and only when\", \"Gateway: `news.publish` works without login; `news.list` requires login and returns a `RecordBatch`; logged-in\"]}\n```",
+      "blockedBy": [
+        2,
+        3
+      ]
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: Server \u2014 APK store and `otter-node apk import`",
+      "status": "completed",
+      "description": "**Goal:** A node stores APK files and serves 1 MiB chunks.\n\nSee plan section 'Task 5: Server \u2014 APK store and `otter-node apk import`'.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/apk/dir.go\", \"otter-server/internal/apk/dir_test.go\", \"otter-server/cmd/otter-node/main.go\", \"otter-server/cmd/otter-node/main_test.go\"], \"verifyCommand\": \"`go test ./internal/apk/ ./cmd/otter-node/ -v` \u2192 PASS.\", \"acceptanceCriteria\": [\"`Import(src)` stores `<sha256 hex>.apk` (0640, owner = the data dir's owner when run as root), returns the sum,\", \"`Chunk(sum, i)` returns chunk i (1 MiB, the last shorter) and the total size; a missing file or `i` past the\", \"`otter-node apk import --config C FILE` prints `FILE: stored <hex>`; `otter-node run` serves `apk.get`.\"]}\n```",
+      "blockedBy": [
+        4
+      ]
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: Admin \u2014 news key, manifest, `announce`",
+      "status": "completed",
+      "description": "**Goal:** `otter-admin` creates the news key in the keyring, puts it in the manifest, signs and publishes announcements\n\nSee plan section 'Task 6: Admin \u2014 news key, manifest, `announce`'.\n\n```json:metadata\n{\"files\": [\"otter-admin\", \"otter-server/internal/admin/news.go\", \"otter-server/internal/admin/news_test.go\", \"otter-server/internal/admin/manifest.go\", \"otter-server/cmd/otter-admin/main.go\", \"otter-server/cmd/otter-admin/main_test.go\"], \"verifyCommand\": \"`go test ./internal/admin/ ./cmd/otter-admin/ -v` \u2192 PASS.\", \"acceptanceCriteria\": [\"`news init` stores the seed in the keyring (service `ottermsg-news`, account `network-<hex8>`), appends the\", \"`manifest sign` includes every key from `news_keys.json` in `Manifest.news_keys`.\", \"`news show` prints the keys and marks the one held in this keyring; `news revoke --pub HEX` removes it from\", \"`announce --ru F --en F [--apk FILE --version-name V --version-code N] [--via L]... [--allow-plain]` signs, saves\", \"`announce --delete ID_PREFIX` (unique prefix of a saved id) publishes a deletion; `announce --list` prints\", \"Tests use `keyring.MockInit()`; nothing touches the real keyring.\"]}\n```",
+      "blockedBy": [
+        2
+      ]
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: Server \u2014 meshsim scenario",
+      "status": "completed",
+      "description": "**Goal:** End-to-end on three in-process nodes: publish to all, replication, deletion, revocation, push.\n\nSee plan section 'Task 7: Server \u2014 meshsim scenario'.\n\n```json:metadata\n{\"files\": [\"otter-server/internal/meshsim/news_test.go\"], \"verifyCommand\": \"`go test ./internal/meshsim/ -run News -race -v` \u2192 PASS.\", \"acceptanceCriteria\": [\"With manifest v2 listing a news key: an announcement published to node a reaches b and c; a client logged in\", \"A deletion published to c removes it on a and b.\", \"Manifest v3 without the key \u2192 `news.list` empty on all nodes.\", \"With `enablePush` (from `push_test.go`): one push per registered offline device for the announcement, none for\", \"An announcement signed by an unlisted key is rejected by `news.publish` (`STATUS_INVALID`) and, injected into a\"]}\n```",
+      "blockedBy": [
+        4,
+        6
+      ]
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: Deploy \u2014 `release-apk.sh`, `news-dialog.sh`, release hook",
+      "status": "completed",
+      "description": "**Goal:** The owner's release flow: copy a release-signed APK to every node, then confirm/edit the RU/EN draft and send\n\nSee plan section 'Task 8: Deploy \u2014 `release-apk.sh`, `news-dialog.sh`, release hook'.\n\n```json:metadata\n{\"files\": [\"otter-server/deploy/release-apk.sh\", \"otter-server/deploy/news-dialog.sh\", \"otter-server/deploy/upgrade-all.sh\", \"otter-server/deploy/test/scripts_test.sh\", \"otter-server/deploy/README.md\"], \"verifyCommand\": \"`bash deploy/test/scripts_test.sh` \u2192 all PASS.\", \"acceptanceCriteria\": [\"`release-apk.sh VERSION APK [--no-news]`: refuses a debug-signed APK (`CN=Android Debug` in\", \"`news-dialog.sh VERSION [--apk F --version-code N]`: reads `dist/news/VERSION.md` (offers to create a template\", \"`upgrade-all.sh VERSION [--only L]... [--no-news]` calls `news-dialog.sh VERSION` after a successful run when\", \"Offline tests in `scripts_test.sh` with stub `ssh`/`scp`/`apksigner`/`aapt2`/`otter-admin` on `PATH` and\"]}\n```",
+      "blockedBy": [
+        5,
+        6
+      ]
+    },
+    {
+      "id": 9,
+      "subject": "Task 9: Android \u2014 verify announcements, API calls",
+      "status": "completed",
+      "description": "**Goal:** The app can fetch news and APK chunks and verify announcement records against the stored manifest.\n\nSee plan section 'Task 9: Android \u2014 verify announcements, API calls'.\n\n```json:metadata\n{\"files\": [\"otter-android/core/crypto/src/main/kotlin/app/ottermsg/core/crypto/AnnouncementVerifier.kt\", \"otter-android/core/crypto/src/test/kotlin/app/ottermsg/core/crypto/AnnouncementVerifierTest.kt\", \"otter-android/core/network/src/main/kotlin/app/ottermsg/core/network/NodeApi.kt\", \"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/sync/ManifestUpdater.kt\"], \"verifyCommand\": \"`./gradlew :core:crypto:test :core:data:testDebugUnitTest` \u2192 PASS.\", \"acceptanceCriteria\": [\"`AnnouncementVerifier.verify(record, newsKeys)` returns `News.Item` for a good announcement, `News.Deleted` for a\", \"`NodeApi.newsList()` calls `news.list`; `NodeApi.apkGet(sha, index)` calls `apk.get` (both with defaults in the\", \"`ManifestUpdater.newsKeys()` returns the latest stored manifest's `news_keys` (empty if none).\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 10,
+      "subject": "Task 10: Android \u2014 store news as messages",
+      "status": "completed",
+      "description": "**Goal:** Verified announcements become messages in the news conversation; deletions and revoked keys remove them;\n\nSee plan section 'Task 10: Android \u2014 store news as messages'.\n\n```json:metadata\n{\"files\": [\"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/news/NewsRepository.kt\"], \"verifyCommand\": \"`./gradlew :core:data:testDebugUnitTest :core:database:testDebugUnitTest` \u2192 PASS.\", \"acceptanceCriteria\": [\"`ConversationType.NEWS = 2`, `MessageKind.NEWS = 5`; no Room schema change (constants only). If a column or query\", \"`NewsRepository.apply(records)`: creates the news conversation on first item (title `\\\"\\\"`, the UI localizes it);\", \"`alerts.onIncoming(newsConversationId)` is called once per `apply` if at least one new item has\", \"`purgeRevoked()`: deletes news messages whose `sender_id` is no longer `Ids.id16` of a key in `newsKeys()`.\", \"`NewsText.pick(ru, en, language)`: `language == \\\"ru\\\"` \u2192 ru if not blank else en; otherwise en if not blank else ru.\", \"SyncEngine: `news.sync(api)` after `directory.sync(api)` (launched, failures logged); event `\\\"news\\\"` \u2192\", \"Backup snapshot excludes `type = NEWS` conversations and their messages (restored phones fetch news again).\", \"Read receipts are never sent for news (already true: `unreadReceiptsPending` only selects TEXT/PHOTO \u2014 keep a\"]}\n```",
+      "blockedBy": [
+        9
+      ]
+    },
+    {
+      "id": 11,
+      "subject": "Task 11: Android \u2014 news chat UI and notifications",
+      "status": "completed",
+      "description": "**Goal:** The news chat looks like an ordinary chat from \u00ab\u0412\u044b\u0434\u0440\u0430\u00bb / \"Otter\": localized title, otter avatar, no composer,\n\nSee plan section 'Task 11: Android \u2014 news chat UI and notifications'.\n\n```json:metadata\n{\"files\": [\"otter-android/feature/conversation/src/main/kotlin/app/ottermsg/feature/conversation/NewsBubble.kt\", \"otter-android/core/ui/src/main/res/drawable-nodpi/otter_news_avatar.webp\", \"otter-android/scripts/export-assets.py\"], \"verifyCommand\": \"`./gradlew :feature:conversation:testDebugUnitTest :feature:chats:testDebugUnitTest :app:testDebugUnitTest assembleDebug` \u2192 PASS.\", \"acceptanceCriteria\": [\"Chat list: the news conversation shows \u00ab\u041d\u043e\u0432\u043e\u0441\u0442\u0438 \u0412\u044b\u0434\u0440\u044b\u00bb / \\\"Otter News\\\", the otter avatar, the localized preview.\", \"Conversation: title \u00ab\u041d\u043e\u0432\u043e\u0441\u0442\u0438 \u0412\u044b\u0434\u0440\u044b\u00bb / \\\"Otter News\\\", no composer (`canWrite = false`), no message-info, sender\", \"http/https URLs are links; a tap opens a dialog \u00ab\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0441\u0441\u044b\u043b\u043a\u0443?\u00bb with the full URL and \u00ab\u041e\u0442\u043a\u0440\u044b\u0442\u044c\u00bb / \u00ab\u041e\u0442\u043c\u0435\u043d\u0430\u00bb;\", \"Notification: channel `news` (\u00ab\u041d\u043e\u0432\u043e\u0441\u0442\u0438\u00bb / \\\"News\\\", IMPORTANCE_DEFAULT), title \u00ab\u041d\u043e\u0432\u043e\u0441\u0442\u0438 \u0412\u044b\u0434\u0440\u044b\u00bb, line sender\", \"TalkBack: the avatar has no description, the link has role Button with label \u00ab\u0421\u0441\u044b\u043b\u043a\u0430: <url>\u00bb.\", \"Unit tests: link detection (`https://a.b/c?d=1`, `http://x`, no match for `ftp://x`, trailing `.`/`)` not part of\"]}\n```",
+      "blockedBy": [
+        10
+      ]
+    },
+    {
+      "id": 12,
+      "subject": "Task 12: Android \u2014 \u00ab\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c\u00bb: download, verify, install; release signing",
+      "status": "completed",
+      "description": "**Goal:** An announcement with an update shows \u00ab\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0434\u043e X\u00bb on phones with an older versionCode; tapping downloads\n\nSee plan section 'Task 12: Android \u2014 \u00ab\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c\u00bb: download, verify, install; release signing'.\n\n```json:metadata\n{\"files\": [\"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/news/ApkUpdater.kt\", \"otter-android/app/src/main/java/app/ottermsg/update/ApkInstaller.kt\"], \"verifyCommand\": \"`./gradlew :core:data:testDebugUnitTest :app:testDebugUnitTest assembleDebug assembleRelease` \u2192 PASS\", \"acceptanceCriteria\": [\"`ApkUpdater.download(update, progress)` returns `Ready(file)` after chunks 0..n\u22121 with matching size and\", \"Button visible only if `update.versionCode > InstalledVersion.code`; states: \u00ab\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0434\u043e 0.6.0\u00bb \u2192 progress\", \"Installer: if `!packageManager.canRequestPackageInstalls()` open `Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES`\", \"Manifest: `REQUEST_INSTALL_PACKAGES`, the FileProvider.\", \"`app/build.gradle.kts`: `versionCode = 6; versionName = \\\"0.6.0\\\"`; `release` uses a `release` signing config\"]}\n```",
+      "blockedBy": [
+        9,
+        11
+      ]
+    },
+    {
+      "id": 13,
+      "subject": "Task 13: Acceptance, docs, merge",
+      "status": "pending",
+      "description": "**Goal:** Everything green, the manual checklist written, decisions and docs updated, branches merged.\n\nSee plan section 'Task 13: Acceptance, docs, merge'.\n\n```json:metadata\n{\"files\": [\"otter-android/docs/m6.5-manual-test.md\", \"docs/00-decisions.md\", \"docs/02-protocol.md\", \"docs/08-admin-and-ops.md\", \"docs/09-roadmap.md\", \"otter-server/deploy/README.md\"], \"verifyCommand\": \"the commands above \u2192 all PASS; `git log --oneline -1 main` in both repos shows the merge.\", \"acceptanceCriteria\": [\"`make -C otter-server check` and `bash otter-server/deploy/test/scripts_test.sh` pass; meshsim News `-race -count=3`.\", \"`./gradlew test assembleDebug assembleRelease` passes in `otter-android`; `scripts/secrets-check.sh` passes in\", \"Manual checklist rows (two phones + dev mesh, then production in Task 14): 1 `news init` + manifest; 2 announce\", \"Decisions D64\u2013D69 copied from this plan's header (final wording, including any deviations found during\", \"Both `m6-5-news` branches merged into `main` with `--no-ff` after the owner says so.\"]}\n```",
+      "blockedBy": [
+        7,
+        8,
+        12
+      ]
+    },
+    {
+      "id": 14,
+      "subject": "Task 14: Owner steps \u2014 keystore, production rollout, first announcement",
+      "status": "pending",
+      "description": "**Goal:** Real phones on release-signed 0.6.0, `eeee` on 0.4.0 with the news key in the manifest, a first real\n\nSee plan section 'Task 14: Owner steps \u2014 keystore, production rollout, first announcement'.\n\n```json:metadata\n{\"files\": [\"otter-admin news init\", \"otter-admin manifest sign\", \"otter-admin manifest publish\", \"otter-server/dist/news/0.6.0.md\"], \"verifyCommand\": \"\", \"acceptanceCriteria\": []}\n```",
+      "blockedBy": [
+        13
+      ]
+    }
+  ],
+  "lastUpdated": "2026-11-12T23:38:07.770871"
+}
