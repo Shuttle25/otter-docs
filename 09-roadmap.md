@@ -68,6 +68,14 @@ None currently.
 
 ## M8 notes (2026-11-13)
 
+**After the first real-network run (2026-11-14):** (1) TURN did not start on `eeee`: pion's relay allocator lists
+network interfaces (netlink) and the systemd unit allowed only `AF_INET AF_INET6 AF_UNIX` → `turn-setup.sh` adds a
+drop-in with `AF_NETLINK`, the unit template allows it (server). (2) Calls crashed in the **release** APK: R8 removed
+WebRTC's `org.webrtc` / `org.jni_zero` classes that its native code looks up (`JNI DETECTED ERROR … java_class ==
+null` in `JNI_OnLoad`); the emulator acceptance used unshrunk debug builds → keep rules in `proguard-rules.pro`,
+verified with the R8 `staging` build on two emulators; app **0.8.1 (9)**. Lesson: acceptance runs must include a
+shrunk build and a node under the real systemd unit.
+
 Built: server — `Content.call = 6` (`CallMessage`), `STATUS_UNAVAILABLE = 9`, `TurnCredentials`, `PushStatus`
 (02-protocol); `Store.Mailbox` skips and the janitor purges envelopes past `expires_ms`; optional `[turn]` config,
 `otter-node turn keygen`, `check` line; netlog classes `auth`, `quota`, `listen`; `internal/turnsrv` (embedded Pion
