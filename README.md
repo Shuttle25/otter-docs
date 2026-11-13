@@ -5,8 +5,9 @@ family (10–100 users). It runs on a mesh of 1–3 identical, self-hosted nodes
 to each other, survive hosting outages, and are designed to keep working under active
 DPI-based internet blocking.
 
-Status: **in development** — milestones M0–M7 (incl. M1.5, M1.6, M6.5) built as of 2026-11-13; M7 (REALITY between
-nodes, dial-out-only domestic node, connectivity log) with real-network checks open; next M8 (1:1 calls), then M8.5 (video) and M9 (hardening). Details per milestone in [09](09-roadmap.md).
+Status: **in development** — milestones M0–M8 (incl. M1.5, M1.6, M6.5) built as of 2026-11-13; M7 (REALITY between
+nodes, dial-out-only domestic node, connectivity log) and M8 (1:1 audio calls through a TURN relay embedded in every
+node) with real-network checks open; next M8.1 (review fixes), M8.5 (video) and M9 (hardening). Details per milestone in [09](09-roadmap.md).
 
 Code: [otter-server](https://github.com/Shuttle25/otter-server) (Go node + admin tools) and
 [otter-android](https://github.com/Shuttle25/otter-android) (Android app). Implementation plans for each milestone are in
@@ -21,11 +22,11 @@ Code: [otter-server](https://github.com/Shuttle25/otter-server) (Go node + admin
 | 02 | [Protocol](02-protocol.md) | Identities, records, envelopes, client↔node API, message flows |
 | 03 | [Mesh replication](03-mesh-replication.md) | How nodes sync, partitions, dedup, garbage collection |
 | 04 | [Security & cryptography](04-security.md) | Threat model, E2E encryption, recovery phrase, password backup |
-| 05 | [Transport & censorship resistance](05-transport.md) | WSS, VLESS+REALITY between nodes, CDN (postponed), network manifest, fastest-node selection, connectivity log |
-| 06 | [Node (server) architecture](06-node-architecture.md) | Go packages, storage schema, config, push, blobs |
-| 07 | [Android app architecture](07-android-architecture.md) | Modules, stack, local storage, sync engine, screens |
+| 05 | [Transport & censorship resistance](05-transport.md) | WSS, VLESS+REALITY between nodes, CDN (postponed), network manifest, fastest-node selection, connectivity log, TURN relay for calls |
+| 06 | [Node (server) architecture](06-node-architecture.md) | Go packages, storage schema, config, push, blobs, embedded TURN relay |
+| 07 | [Android app architecture](07-android-architecture.md) | Modules, stack, local storage, sync engine, calls, screens |
 | 08 | [Operations](08-operations.md) | Deploying 1/2/3 nodes, admin CLI, upgrades, monitoring |
-| 09 | [Roadmap](09-roadmap.md) | V1 milestones, V2 (calls, multi-device), open questions |
+| 09 | [Roadmap](09-roadmap.md) | V1 milestones (calls M8/M8.5), V2 (group calls, multi-device), open questions |
 | 10 | [Design guidelines](10-otter-design-guidelines.md) | Android UI: tokens, typography, screens, states, copy (RU) — normative for UI |
 | 11 | [Server deployment](11-deployment.md) | Build, bundle, install, TLS, systemd, upgrades, backups, scripts |
 
@@ -41,4 +42,5 @@ censored network reaches the foreign ones.
 Registration is invite-only, no phone number. Recovery is by 24-word phrase (identity) and
 password (encrypted history backup replicated across nodes). Push is battery-friendly
 FCM wake-ups with a constant, content-free payload and an automatic 15-minute fallback when Google services are
-unavailable (M5).
+unavailable (M5). 1:1 audio calls (M8) use WebRTC with end-to-end DTLS-SRTP; signaling travels as encrypted messages
+and media through a TURN relay on each phone's own node, so by default neither side learns the other's IP.

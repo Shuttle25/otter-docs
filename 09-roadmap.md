@@ -27,7 +27,7 @@ Each milestone ends with something runnable and tested.
 | M6 | Backup & restore | backup meta, auth, rate limits, eager replication | password backup, restore flow, session reset | wipe phone → restore with username + password → history back, contacts can keep chatting — **done 2026-11-12** (see M6 notes; two-phone checks open) |
 | M6.5 | Otter news | `ANNOUNCEMENT` record signed by a news key listed in the manifest, validation + replication, `otter-admin announce`, push to all, APK served by the nodes | read-only «Новости Выдры» chat, optional «Обновить» button (APK from the nodes, SHA-256 checked), notification | admin sends one announcement from the PC → every member's app shows it (and a notification on FCM phones) within seconds; a forged announcement is rejected — **done 2026-11-13** (see M6.5 notes; two-phone and production rows open) |
 | M7 | DPI transports | embedded Xray REALITY inbound/outbound between nodes, `dial_out_only` domestic node, per-endpoint ranked dialing + demotion, connectivity log, `reality-setup.sh` (CDN-WSS postponed, D75) | failure classes + demotion on throttling, «Журнал подключений» (no REALITY in the app, D75) | with direct WSS domestic → foreign blocked, messages flow phone ↔ domestic node ↔ REALITY ↔ foreign node ↔ phone; probes see the camouflage site — **done 2026-11-13** (see M7 notes; real-network rows open) |
-| M8 | 1:1 audio calls | TURN relay embedded in `otter-node` (Pion; UDP 3478 + TCP/TLS fallback), `turn.credentials` (short-lived HMAC, logged-in non-revoked members only), allocation/bandwidth limits, call results in `netlog`, firewall step in `add-node.sh`/`upgrade.sh` | WebRTC (Opus), signaling as Signal-encrypted 1:1 contents (`call_offer`/`call_answer`/`ice_candidate`/`call_hangup`, offer is urgent → FCM), DTLS fingerprints inside the encrypted offer, ICE with every path (direct, both relays, TCP), «Звонки только через сервер» (default on, hides IPs), CallStyle full-screen ringing + `phoneCall` FGS + Telecom `ConnectionService`, call screen, missed-call entries; SAVER phones can't ring (caller is told) | phone on RU mobile (domestic node) ↔ phone on foreign Wi-Fi (eeee) hold a 5-min relay-only call; the relay can't decrypt; UDP blocked → call still works over TCP/TLS; a revoked user gets no TURN credentials |
+| M8 | 1:1 audio calls | TURN relay embedded in `otter-node` (Pion; UDP 3478 + TCP/TLS fallback), `turn.credentials` (short-lived HMAC, logged-in non-revoked members only), allocation/bandwidth limits, call results in `netlog`, firewall step in `add-node.sh`/`upgrade.sh` | WebRTC (Opus), signaling as Signal-encrypted 1:1 contents (`call_offer`/`call_answer`/`ice_candidate`/`call_hangup`, offer is urgent → FCM), DTLS fingerprints inside the encrypted offer, ICE with every path (direct, both relays, TCP), «Звонки только через сервер» (default on, hides IPs), CallStyle full-screen ringing + `phoneCall` FGS + Telecom `ConnectionService`, call screen, missed-call entries; SAVER phones can't ring (caller is told) | phone on RU mobile (domestic node) ↔ phone on foreign Wi-Fi (eeee) hold a 5-min relay-only call; the relay can't decrypt; UDP blocked → call still works over TCP/TLS; a revoked user gets no TURN credentials — **done 2026-11-13** (see M8 notes; real-network rows open) |
 | M8.1 | Review fixes (after M8, owner 2026-11-13) | (2) `REVOCATION` records are validated and replicated but never applied (`users.revoked` is never set): apply them on accept/replicate, or reject them until M9 (owner picks); publish-safety (D57): commits carry timezone `+0100` and hour-of-day patterns, 61 commits per server/android repo (15 in docs) carry `Claude-Session:` URLs — decide on a history rewrite + force-push (already public, so it only limits further spread) and on dropping the trailer for new commits; strip C2PA provenance metadata (ChatGPT image generation, 2026-11-11T01:00:05Z) from the four PNGs in `otter-android/design/source-assets/assets/` and add a metadata check to `secrets-check.sh` | (1) **high**: restore takes the Argon2 cost from the node (`RestoreManager.kt` `backup.auth`), so a malicious or hacked node can ask for a cheap hash and guess the backup password offline fast: refuse cost below m = 64 MiB, t = 3, p = 1 and salts ≠ 16 bytes (test with a fake node) | a node answering with a low KDF cost makes the restore fail and learns nothing new; a signed revocation is enforced (or refused); `secrets-check.sh` fails on C2PA/EXIF metadata, and the history decision is recorded |
 | M8.5 | 1:1 video calls | TURN bandwidth caps raised for video, per-call bitrate logging | camera on/off, front/back switch, picture-in-picture, adaptive bitrate (audio-only fallback on throttled links) | same two phones hold a 5-min video call over the relays; throttled link degrades to audio instead of dropping |
 | M9 | Security & ops hardening (**discuss with the owner before planning**) | user revocation (`otter-admin user revoke/list`, `can_invite` revoke), per-user quotas + per-IP limits + disk floor, replication keep-alive ping (25 s) with `netlog`, monitoring in `status.sh` + `otter-node status` + `/metrics` (lag, backlog, disk, push errors), deployment guide | groups drop revoked members and rotate sender keys, app lock (PIN/biometric, optional `FLAG_SECURE`), network status screen + battery-optimization helper, WebSocket ping 30 s, settings polish, username-conflict rename screen (D31); optional invite-unlocked APK download (changes the M6.5 rule) | lost phone cut off by one admin command; 3-node deployment guide followed from scratch by someone else |
@@ -65,6 +65,85 @@ on the phone.
 ## Open questions
 
 None currently.
+
+## M8 notes (2026-11-13)
+
+Built: server — `Content.call = 6` (`CallMessage`), `STATUS_UNAVAILABLE = 9`, `TurnCredentials`, `PushStatus`
+(02-protocol); `Store.Mailbox` skips and the janitor purges envelopes past `expires_ms`; optional `[turn]` config,
+`otter-node turn keygen`, `check` line; netlog classes `auth`, `quota`, `listen`; `internal/turnsrv` (embedded Pion
+TURN v5: TURN-REST credentials, own expiry check, per-user quota with reservations, per-node cap, per-allocation rate
+cap, UDP-only IPv4 relays, peer deny list, own addresses blocked except own relay ports, stats file); RPCs
+`turn.credentials` / `push.status`; relay started before WSS, a start failure leaves the node running; meshsim relay
+across two nodes over UDP, TCP and TLS; deploy — `templates/node.toml.turn` in 0.8.0+ bundles, `install.sh` secret +
+ufw question, `turn-setup.sh`, `upgrade-all.sh --no-turn`, TURN column in `status.sh`, `version_ge`, `TURN_PORTS`.
+App — WebRTC M150 + core-telecom, `:feature:calls`, release ABIs arm64-v8a + armeabi-v7a, pure `CallStateMachine`,
+`CallManager` (event loop, `CallLink`, `CallAlerts`, `CallStarter`), `TurnCache`, `WebRtcEngine` (relay-only, Opus
+DTX), Room v8 (`call_outcome`, `call_duration_s`, `outbox.expires_ms`), call signaling through the outbox, call lines
+in chats and the chat list, CallStyle full-screen ringing, `CallService` (`phoneCall|microphone`, Telecom, audio
+fallback), call screen, chat call button, missed-call notifications, call lines in «Журнал подключений», «Звонки
+только через сервер», full-screen-permission row, 0.8.0 / versionCode 8. Decisions D76–D81 (D6 revised). Plan:
+`docs/superpowers/plans/2026-11-13-m8-audio-calls.md`; spec: `docs/superpowers/specs/2026-11-13-m8-audio-calls-design.md`.
+Checklists: `otter-server/docs/m8-manual-test.md`, `otter-android/docs/m8-manual-test.md`.
+Commits: server `8623d65`, `df6f716`, `2546f54`, `a4e7113`, `0cc988c`, `17c0d6c`, `6b9d305`, `bc65d8d`, `97f5922`,
+`188c75a` (checklist); android `dee48ee`, `dfab2b5`, `60b3ff3`, `c3760a2`, `32a3eb1`, `51a6df4`, `d057138`,
+`8def0e9`, `fbee406`, `dc98cce`, `c05ab41` (fixes from the acceptance run), `91acbe4` (checklist); docs `80e6c03`.
+
+Versions: `github.com/pion/turn/v5 v5.1.3` (with `pion/stun/v4 v4.0.1`, `pion/transport/v5 v5.1.1`; MVS raises
+`golang.org/x/time` 0.12.0 → 0.14.0), `io.github.webrtc-sdk:android:150.7871.04` (WebRTC M150),
+`androidx.core:core-telecom:1.0.1`. `otter-node` (`-s -w`): amd64 **20.0 MB** (20 037 794 bytes, +0.48 MB), arm64
+**18.6 MB** (18 612 386 bytes, +0.39 MB). Release APK ≈ **52.4 MB** (0.7.0: 51.5 MB; WebRTC adds 12.3 MB arm64 /
+6.8 MB armv7 of native code, dropping x86_64 from release offsets most of it; the spec expected 70–80 MB); debug APK
+111 MB (x86_64 included).
+
+Local run (2026-11-13, development PC, throwaway two-node network `x` + `y` with TURN on the LAN address
+`192.168.x.y`, one shared relay port range, `allow_private_peers`; two emulators, API 34 and API 30): two phones on
+one node talked 2:55 (353 036 bytes relayed, allocations back to 0), cross-node call 0:55 with bytes on both relays;
+UDP blocked inside the emulators → `call:relay-tcp`; relay-only off → `call:direct`; decline, no answer (45 s), busy
+(emulator GSM call), full-screen ringing on a locked API 30 and API 34 phone, full-screen intents denied →
+notification only + the Settings row; a 0.7.0 phone got no ringing and an empty chat (as the news says), and after
+`adb install -r` of 0.8.0 (Room 7 → 8) kept its account and chats and rang. TURN over TLS was covered only by meshsim
+(the local nodes have no TLS certificate).
+
+Deviations / findings:
+- **Pion v5 instead of v4** (v5 is the maintained line) and **webrtc-sdk M150 instead of stream-webrtc** (current
+  milestone, 16 KB-aligned libraries), D76/D77.
+- **Expiry check of our own** on every authenticated TURN request (pion's `OnAuth` does not fire for an expired or
+  malformed username); pion's auth logger silenced; netlog lines rate limited (burst 20, then 1/s).
+- **Quota reservations**: a slot is reserved in the quota handler and confirmed on allocation (stale after 5 s), so
+  parallel Allocates on several connections cannot overshoot. Relays are UDP/IPv4 only; RFC 6062 TCP relays and
+  RESERVATION-TOKEN ports outside the range are refused. The deny list also covers `0/8`, `192.0.0.0/24`,
+  `198.18/15`, `240/4`, NAT64, 6to4, Teredo and `100::/64`.
+- **Own addresses**: the relay drops writes to any address of the node except its own relay ports, so two phones on
+  one node can talk; in meshsim (and the local run) all nodes share one relay port range because every relay has the
+  same IP there.
+- **TURN credentials on every call** (`dc98cce`, found in acceptance): with TURN switched off the phone kept dialing
+  with cached credentials (up to 11 h) and the call failed after ringing instead of «Звонки недоступны»; the same
+  would happen after `turn keygen --force`. The cache is now only a fallback when the request fails. Revises the
+  spec's "cached until 1 h before expiry" (D79).
+- `fbee406`: a call the other side ended was logged as `call:none` (no selected pair any more); the path seen 2 s
+  after ICE connected is kept.
+- `c05ab41`: the «Звонки недоступны» notice was emitted before the call screen subscribed (blank screen that closed);
+  the last notice is replayed and cleared when a new call starts.
+- `CallLink` with a `Provider<SyncEngine>` avoids a Dagger cycle (SyncEngine → MailboxReceiver → CallInbox →
+  CallLink). Without Telecom the call still runs with a plain `AudioManager` fallback; a refused background
+  foreground-service start rings with the notification alone and starts the service on Accept.
+- `config`: `turn.relay_ip` must be IPv4; `tls_listen` defaults to `:5349` only when `[wss]` has TLS.
+- Deploy: ufw is changed only on an explicit yes (default No), cloud firewalls by hand; a TURN failure in
+  `upgrade-all.sh` is reported (`TURN NOT ENABLED`) but does not stop the rollout.
+- Lint: `LocalDate.ofInstant` is API 34 (desugaring only in `:app`) → `atZone(...).toLocalDate()` (`d057138`).
+- The 0.7.0 app acks an unknown `Content.call`, shows nothing, but creates an empty direct chat if none exists:
+  accepted, told in the 0.8.0 news.
+
+Open:
+- Real-network rows: `upgrade-all.sh 0.8.0` on eeee and the domestic node, cloud firewalls, `status.sh` TURN on,
+  packet capture on the relay (only DTLS/SRTP; needs root), RU mobile ↔ foreign Wi-Fi 5-min call, RU ↔ RU via the
+  domestic node (waits for M7 Task 13), abroad ↔ abroad via eeee, ringing with the app swiped away (FCM), Bluetooth /
+  speaker / proximity, Wi-Fi → mobile mid-call, a phone without push, release 0.8.0 via «Обновить» with news kept.
+- Not fixed: a phone without push drops its connection seconds after leaving the screen, so it cannot ring (D61;
+  Instant mode is V1.x). `push.status` only knows whether a push token exists, not whether any node can push. The
+  «Звонки недоступны» screen shows no peer name. One full `./gradlew test` run failed intermittently and passed on
+  the rerun.
+- Revoked users: `turn.credentials` must refuse them once revocation is applied (M8.1 / M9).
 
 ## M7 notes (2026-11-13)
 

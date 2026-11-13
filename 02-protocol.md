@@ -249,7 +249,7 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 | `push.register{Record PUSH_TOKEN}` | `RecordRequest` with the signed `PUSH_TOKEN` (M5, D60); the app sends it after login only when its FCM token changed. A pre-M5 node answers INVALID "unknown method" (harmless) |
 | `news.publish{Record}` | **public**, like `manifest.publish`: an ANNOUNCEMENT or ANNOUNCEMENT_DELETED signed by a current news key; idempotent; `otter-admin announce` sends it to every node (D67) |
 | `news.list` → `RecordBatch` | logged in: every stored ANNOUNCEMENT and ANNOUNCEMENT_DELETED, oldest first (D67) |
-| `turn.credentials{}` → `TurnCredentials` | logged in (M8, D77): TURN-REST username/password for **this** node's relay, `ttl_s` 43200, `urls` (`turn:IP:3478?transport=udp`, `…?transport=tcp`, `turns:IP:5349?transport=tcp`); TURN off → UNAVAILABLE (9); pre-M8 nodes → INVALID |
+| `turn.credentials{}` → `TurnCredentials` | logged in (M8, D77): TURN-REST username/password for **this** node's relay, `ttl_s` 43200, `urls` (`turn:IP:3478?transport=udp`, `…?transport=tcp`, `turns:IP:5349?transport=tcp` only when the node's WSS has TLS); asked on every call (D79); TURN off → UNAVAILABLE (9); pre-M8 nodes → INVALID |
 | `push.status{user_id}` → `PushStatus{has_push}` | logged in (M8): true if this node holds a PUSH_TOKEN for (user, device 1); the caller warns that a phone without push may not ring |
 | `apk.get{sha256, index}` → `ApkChunk{data, total_size}` | logged in: 1 MiB chunk of an APK imported with `otter-node apk import`; unknown hash / index past the end → NOT_FOUND (D68) |
 | `ping` | keep-alive / RTT measurement |

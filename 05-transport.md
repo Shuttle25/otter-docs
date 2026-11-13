@@ -17,8 +17,8 @@ hosting outages.
 4. **Mesh relays around blocks.** A node placed *inside* the restricted network (domestic
    hosting) can be the only thing clients reach; it relays over its own disguised link to
    nodes abroad (see [03](03-mesh-replication.md)).
-5. **Pluggable.** Transports implement one interface on both sides; new ones (e.g. for calls
-   in V2, or future obfuscation) are added without touching messaging code.
+5. **Pluggable.** Transports implement one interface on both sides; new ones (future obfuscation)
+   are added without touching messaging code. Calls (M8) use a separate TURN path (below).
 
 ## Transports (V1)
 
@@ -169,6 +169,33 @@ direction) updates the newest line (count, last time) instead of adding one; the
   [07](07-android-architecture.md). The "instant" mode (persistent connection with adaptive keep-alive) is **not in
   V1** (D61).
 
-## V2 hook: calls
-`Transport` interface already supports opening additional streams; calls will add a
-media relay (TURN-like) path that can also run over REALITY.
+## Calls: TURN relay (M8, D77, D79)
+
+Call media does not use the message transports. Each node embeds a TURN relay (Pion `turn/v5`) and each phone
+allocates a relay **on its own current node**; signaling (offer/answer/candidates/hangup) goes through the ordinary
+encrypted mailbox (D78), never through the relay.
+
+```
+RU phone ──TURN──▶ domestic relay ◀──TURN── RU phone                    (Russia ↔ Russia)
+phone abroad ──TURN──▶ foreign relay ◀──TURN── phone abroad             (abroad ↔ abroad)
+RU phone ─▶ domestic relay ◀─ ─ ICE decides ─ ─▶ foreign relay ◀─ phone abroad   (best effort, M8)
+```
+
+* **Ports** (per node): **UDP 3478**, **TCP 3478**, **TLS 5349** (only when the node's `[wss]` has a TLS certificate;
+  443 is REALITY since D72), relay ports **UDP 49160–49200**. They are fixed defaults, not in the manifest:
+  `turn.credentials` returns the URLs (`turn:IP:3478?transport=udp`, `…?transport=tcp`, `turns:IP:5349?transport=tcp`).
+* **Fallback**: the phone allocates over every URL; ICE prefers the UDP relay, then TCP, then TLS, so a network that blocks UDP still gets
+  a call (emulator run: `call:relay-tcp`). The TLS certificate is not verified (media is end-to-end DTLS-SRTP).
+  Relays themselves are **UDP only** (RFC 6062 TCP relays are refused) and **IPv4 only**.
+* **Relay-only** («Звонки только через сервер», default on): ICE transport policy RELAY, so only relay candidates are
+  offered and neither the other phone nor its node learns this phone's IP. Off: host and server-reflexive candidates
+  too; a direct path wins when it works (`call:direct`).
+* Two phones on **one** node relay through that node: the relay may send to its own relay ports (and to no other
+  address of the node itself). Two nodes: relay ↔ relay over the public internet.
+* **Credentials** are short-lived TURN-REST tokens (12 h) valid only on the issuing node, asked for at the start of
+  every call (D79).
+* The border is not handled in M8: a Russia ↔ abroad call uses whatever ICE finds. Media between nodes over the mesh
+  or REALITY is V2 if the real-network test shows trouble.
+* Each call adds one line to the phone's connectivity log: `call:relay-udp` / `relay-tcp` / `relay-tls` / `direct`
+  / `none`, network, result, RTT, direction and duration. TURN failures on a node (bad or expired login, quota,
+  listener start) go into the node's `netlog` with classes `auth`, `quota`, `listen`.

@@ -9,6 +9,7 @@ WSS/website endpoint.
 * Go ≥ 1.23
 * SQLite via `modernc.org/sqlite` (pure Go, WAL mode)
 * Xray-core embedded (`github.com/xtls/xray-core`, MPL-2.0)
+* TURN relay embedded: Pion `github.com/pion/turn/v5` v5.1.3 (MIT; M8, D77)
 * WebSocket: `github.com/coder/websocket`
 * Protobuf: `google.golang.org/protobuf`
 * FCM: HTTP v1 API via `golang.org/x/oauth2/google` (no Firebase Admin SDK needed)
@@ -39,6 +40,7 @@ server/
       wss/             HTTP server + secret-path WebSocket + decoy site
       reality/         embedded Xray REALITY inbound → internal handler; outbound dialer for peers
     push/              FCM sender, coalescing
+    turnsrv/           embedded TURN relay for calls (M8): credentials, quotas, rate cap, peer filter, stats
     janitor/           expiry, GC, oplog compaction
     ratelimit/         token buckets per user / IP
     manifest/          current manifest, verification, distribution
@@ -140,6 +142,39 @@ tick. `blob.get` runs off the session's read loop (4 at a time), so a proxied ch
   no ids, no content. HTTP 404 or `UNREGISTERED` → the token row is deleted on this node only (if still current);
   other errors are logged (`push failed`).
 
+## TURN relay for calls (M8, D77)
+
+`internal/turnsrv` wraps Pion `turn/v5` inside `otter-node` (no extra service):
+* `creds.go` — TURN-REST credentials (`"<expiry>:<hex(sha256(user_id))[:16]>"`, HMAC-SHA1, 12 h) and the `Issuer`
+  behind `turn.credentials`; our own expiry check (injectable clock) wraps pion's auth handler on **every**
+  authenticated request, because pion fires `OnAuth` only on an HMAC mismatch. pion's auth logger is silenced.
+* `server.go` — listeners (UDP/TCP 3478, TLS 5349 with the WSS certificate), quota handler with **reservations**
+  (a slot is reserved on Allocate and confirmed in `OnAllocationCreated`, stale after 5 s): per user (4) and per node
+  (41 = relay port range); over the limit → 486.
+* `relay.go` — relay address generator: UDP only, IPv4 `relay_ip`, ports 49160–49200 (RESERVATION-TOKEN ports outside
+  the range and RFC 6062 TCP relays refused); a token-bucket **rate cap per allocation**, each direction
+  (`relay_kbps`, default 200); writes to any address of the node (relay IP, interface addresses) are dropped unless
+  the port is one of its relay ports (two phones on one node).
+* `peers.go` — permission handler: no loopback, private, link-local, multicast, unspecified, CGNAT, `0/8`,
+  `192.0.0.0/24`, `198.18/15`, `240/4`, NAT64, 6to4, Teredo, `100::/64` peers (`allow_private_peers` for tests and
+  dev networks only).
+* `stats.go` — allocations, relayed and dropped bytes; written every 10 s to `<data_dir>/turn.stats.json`;
+  `otter-node stats` appends ` turn_allocs=N turn_relayed_bytes=M` when the snapshot is < 60 s old.
+* `keygen.go` — `otter-node turn keygen --config FILE [--force]`: 32 random bytes to `secret_file` (refuses to
+  overwrite without `--force`, never prints the secret; does not open the DB).
+* netlog (D74) classes `auth` (bad HMAC, expired/malformed username), `quota`, `listen` (start failure); merged, and
+  rate limited (burst 20, then 1/s).
+
+`otter-node run` starts the relay **before** serving WSS (sessions read `svc.Turn`) and closes it on stop; the log
+says `"turn on"` with the ports; nothing is started without `[turn]`. A start failure (port taken, unreadable
+secret) is logged as `"turn off: could not start"` and netlogged (class `listen`), and the node keeps serving;
+`turn.credentials` then answers UNAVAILABLE. `otter-node check`
+validates `[turn]` and the secret (`ok turn secret … (32 bytes), relay IP:49160-49200`). New RPCs in
+`service/calls.go`: `turn.credentials`, `push.status` (has a PUSH_TOKEN for device 1).
+
+Call signaling envelopes carry a 2-minute record expiry (D78): `Store.Mailbox` skips envelopes past their
+`expires_ms`, and the janitor purges them (other envelopes still go by the 30-day receive age).
+
 ## Quotas & limits (defaults, configurable)
 
 | Limit | Default |
@@ -152,6 +187,8 @@ tick. `blob.get` runs off the session's read loop (4 at a time), so a proxied ch
 | Mailbox max undelivered | 10 000 envelopes |
 | Requests | 50/s burst, 10/s sustained per session |
 | Registration attempts | 10/hour per IP |
+| TURN allocations (`[turn]`) | 4 per user, 41 per node (= relay port range) |
+| TURN relayed rate (`[turn] relay_kbps`) | 200 kbit/s per allocation, each direction |
 
 ## Configuration (`/etc/otter/node.toml`)
 
@@ -181,6 +218,13 @@ blob_bandwidth = "2MB/s"   # sizes: B, KB/MB/GB, KiB/MiB/GiB; rates with /s; "0"
 [limits]
 user_quota = "2GiB"
 max_blob   = "100MiB"
+
+[turn]                       # M8, optional; written by make-bundle.sh / deploy/turn-setup.sh (0.8.0+ only)
+enabled  = true
+relay_ip = "203.0.113.10"    # the node's public IPv4
+# defaults: udp_listen = tcp_listen = ":3478", tls_listen = ":5349" (only with [wss] TLS),
+# relay_port_min/max = 49160/49200, secret_file = "/etc/otter/turn.secret", realm = "otter",
+# max_allocations_per_user = 4, max_allocations = port range, relay_kbps = 200, allow_private_peers = false
 ```
 
 ## Observability
