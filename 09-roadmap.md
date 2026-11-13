@@ -75,7 +75,7 @@ the unit. App — `FailureClass` + throttling demotion in `NodeSelector` / `Conn
 `docs/superpowers/specs/2026-11-13-m7-dpi-transports-design.md`. Checklists: `otter-server/docs/m7-manual-test.md`,
 `otter-android/docs/m7-manual-test.md`.
 Commits: server `7587991`, `dada893`, `b90ec17`, `e49f19b`, `f44b3f3`, `a3ef6d1`, `4e68ec8`, `44b7a40`, `ecd3858`
-(fixes from the local run), `0f1322b` (checklists); android `a957374`, `caca10a`, `7b14110`, `61d4a76` (checklist).
+(fixes from the local run), `0f1322b` (checklists), `6fb5022` (race fix from the final check); android `a957374`, `caca10a`, `7b14110`, `61d4a76` (checklist).
 
 Versions: `github.com/xtls/xray-core v1.260327.0` (Xray 26.3.27); it requires `golang.org/x/oauth2` 0.30 → **0.34.0**
 and `cloud.google.com/go/compute/metadata` 0.3 → 0.9. `otter-node` (`-s -w`): amd64 14.3 → **19.6 MB** (19 558 562
@@ -98,6 +98,8 @@ Deviations / findings:
 - **Camouflage limit:** `www.microsoft.com` passed the TLS 1.3 / h2 / certificate checks but REALITY cannot mirror it
   (8273-byte Certificate record > xtls/reality's 8192 limit → "handshake did not complete"). `reality-check` now runs
   a loopback REALITY handshake through the site (`ecd3858`); examples in scripts and docs use `dl.google.com`.
+- Xray's `core.New` writes `transport/internet` package globals; the node creates its REALITY server and client
+  instances concurrently → data race (final `make check`). Instance creation is serialized by a package mutex (`6fb5022`).
 - `nodecheck`: a REALITY endpoint shares the WSS secret path, so the endpoint check matched it and failed on pins;
   REALITY endpoints are now skipped there, and the check verifies the key file against the manifest's public key.
 - `add-reality` refused `--plain` dev nodes (path only from WSS); now also from `WS_PLAIN` (`44b7a40`).
