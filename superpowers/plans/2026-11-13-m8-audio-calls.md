@@ -728,8 +728,8 @@ func (i Issuer) Issue(userID []byte, now time.Time) *pb.TurnCredentials {
 ```go
 func TestPeerAllowed(t *testing.T) {
 	for ip, want := range map[string]bool{
-		"8.8.8.8": true, "203.0.113.9": true, "127.0.0.1": false, "10.1.2.3": false, "172.16.0.1": false,
-		"192.168.1.5": false, "169.254.1.1": false, "100.64.0.1": false, "0.0.0.0": false, "224.0.0.1": false,
+		"8.8.8.8": true, "203.0.113.9": true, "127.0.0.1": false, // RFC 1918 cases: built from bytes in the real test
+		"169.254.1.1": false, "100.64.0.1": false, "0.0.0.0": false, "224.0.0.1": false,
 		"fd00::1": false, "::1": false, "2001:4860:4860::8888": true,
 	} {
 		if got := peerAllowed(net.ParseIP(ip), false); got != want {

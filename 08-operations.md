@@ -69,6 +69,35 @@ upgrades, backups, health checks) and `otter-server/deploy/README.md` (one-scree
   their pinned connection and check its SHA-256 (D68, D69). `upgrade-all.sh` offers the same news dialog
   (`--no-news` skips). Google Play optional.
 
+## Calls: TURN relay (M8, D77)
+
+Every 0.8.0+ node can relay calls. Steps and checks (details in `otter-server/deploy/README.md`, "Calls (TURN, M8)"):
+
+* **Order for 0.8.0**: upgrade every node first (`deploy/upgrade-all.sh 0.8.0`), check `deploy/status.sh`, then
+  release the app (`deploy/release-apk.sh 0.8.0 APK`). Phones on a node without TURN show «Звонки недоступны: сервер
+  не обновлён».
+* **`deploy/turn-setup.sh LABEL [--if-missing|--force]`** turns TURN on for one node: refuses nodes below 0.8.0
+  (`version_ge`) and nodes without an IPv4 address in the admin dir (`relay_ip`), creates `/etc/otter/turn.secret`
+  on the node if missing (`otter-node turn keygen`; 32 bytes, 0640 root:otter, never printed or copied), writes
+  `[turn]` into `node.toml.new`, runs `otter-node check`, keeps `node.toml.pre-turn`, swaps, restarts and waits for
+  the health check and the `"turn on"` log line; on failure the previous config is back. `--if-missing` leaves a node
+  that already has `[turn]`; `--force` rewrites the section (the secret is kept).
+* **`upgrade-all.sh`** runs `turn-setup.sh --if-missing` on every node once it runs ≥ 0.8.0 (also on nodes already on
+  the version); `--no-turn` skips it. A TURN failure does not stop the rollout: the summary says `TURN NOT ENABLED`.
+  New nodes: `make-bundle.sh` adds `[turn]` to 0.8.0+ bundles and `install.sh` creates the secret.
+* **Firewall**: the relay needs **UDP 3478, TCP 3478, TCP 5349, UDP 49160–49200** (`TURN_PORTS` in `deploy/lib.sh`).
+  ufw on the node is changed **only on an explicit yes** on the admin's terminal (default No; `install.sh` via
+  `push.sh`, `turn-setup.sh` after TURN is up); otherwise the commands are printed. **Cloud firewalls** (hosting
+  panel) are opened by hand; the scripts only remind.
+* **Status**: `deploy/status.sh` has a TURN column (`on` / `off`; `-` = no `[turn]`, e.g. below 0.8.0) and the STATS
+  column gets `turn_allocs=` / `turn_relayed_bytes=` from `otter-node stats` (snapshot `<data_dir>/turn.stats.json`,
+  shown when < 60 s old). TURN problems (bad or expired logins, quota, listener start) are in `otter-node netlog`
+  with classes `auth`, `quota`, `listen`.
+* **Rotation**: `otter-node turn keygen --force` + restart gives a new secret; phones ask for credentials on every
+  call, so the next call already uses it.
+* **Downgrade** below 0.8.0: remove `[turn]` first (or restore `node.toml.pre-turn`); 0.7.0 refuses the section.
+  Re-installs (`push.sh`) rewrite `node.toml` from the template, which for 0.8.0+ includes `[turn]` again.
+
 ## Backups of nodes
 
 Not required for correctness (state is replicated and mostly temporary). For a 1-node setup,
