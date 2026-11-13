@@ -96,9 +96,10 @@ Deviations / findings:
 - Open: the downloaded APK stays in the app cache until the next update replaces it or Android clears the cache.
 - Exported WebP assets total ~580 KB (over the 400 KB note already before the news avatar).
 
-Owner steps (Task 14): release keystore, `upgrade-all.sh 0.6.0 --no-news` on eeee, real `news init` + `manifest
-sign` in the owner's terminal, phones moved to release signing (backup → uninstall → install → restore), first
-announcement with `release-apk.sh`.
+Production (Task 14, 2026-11-13, done by the owner): release keystore (`CN=Otter`), eeee 0.5.0 → 0.6.0 (all checks
+PASS, push on), real news key + manifest v3, both phones moved to release signing via backup/restore, first
+announcement `c9c08920d257` with the 0.6.0 APK on eeee. A message sent to a phone while its app was uninstalled is
+lost («Could not read the message…», D53) — expected. Open: FCM timing of a news push, TalkBack walk (rows 3, 11).
 
 ## M1 notes (2026-11-11)
 

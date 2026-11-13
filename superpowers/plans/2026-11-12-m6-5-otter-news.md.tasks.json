@@ -124,12 +124,12 @@
     {
       "id": 14,
       "subject": "Task 14: Owner steps — keystore, production rollout, first announcement",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Real phones on release-signed 0.6.0, `eeee` on 0.4.0 with the news key in the manifest, a first real\n\nSee plan section 'Task 14: Owner steps — keystore, production rollout, first announcement'.\n\n```json:metadata\n{\"files\": [\"otter-admin news init\", \"otter-admin manifest sign\", \"otter-admin manifest publish\", \"otter-server/dist/news/0.6.0.md\"], \"verifyCommand\": \"\", \"acceptanceCriteria\": []}\n```",
       "blockedBy": [
         13
       ]
     }
   ],
-  "lastUpdated": "2026-11-13T08:52:20"
+  "lastUpdated": "2026-11-13T09:55:50"
 }
