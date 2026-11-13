@@ -1,0 +1,124 @@
+{
+  "planPath": "docs/superpowers/plans/2026-11-13-m7-dpi-transports.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: Branches, proto flag and admin commands",
+      "status": "pending",
+      "description": "**Goal:** `NodeInfo.dial_out_only` exists; `otter-admin` can set it and add a REALITY endpoint.\n\nSee plan section 'Task 1: Branches, proto flag and admin commands' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `cd otter-server && make gen && go test ./internal/admin/ ./cmd/otter-admin/` → `ok`\n\n```json:metadata\n{\"files\": [\"otter-server/cmd/otter-admin/main.go\", \"otter-server/cmd/otter-admin/main_test.go\", \"otter-server/internal/admin/nodeops.go\", \"otter-server/internal/admin/nodeops_test.go\", \"otter-server/proto/otter/v1/manifest.proto:17-23\"], \"verifyCommand\": \"`cd otter-server && make gen && go test ./internal/admin/ ./cmd/otter-admin/` → `ok`\", \"acceptanceCriteria\": [\"`make gen` regenerates Go code; `NodeInfo.DialOutOnly` exists; default false for existing nodes.\", \"`node set-dial-out-only --label L [--off]` toggles it; unknown label → `ErrNotFound`.\", \"`node add-reality --label L --host H --port 443 --pub B64URL --server-name S [--short-id HEX]` appends a\", \"`node list` prints `dial_out_only=true` and REALITY endpoints with their server name.\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Failure classes and the node connectivity log",
+      "status": "pending",
+      "description": "**Goal:** A `netlog` package classifies connection failures; the store keeps a merged log of at most 200 lines.\n\nSee plan section 'Task 2: Failure classes and the node connectivity log' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `go test ./internal/netlog/ ./internal/store/ -run 'Classify|Netlog'` → `ok`\n\n```json:metadata\n{\"files\": [\"otter-server/internal/netlog/netlog.go\", \"otter-server/internal/netlog/netlog_test.go\", \"otter-server/internal/store/migrations/0008_netlog.sql\", \"otter-server/internal/store/netlog.go\", \"otter-server/internal/store/netlog_test.go\"], \"verifyCommand\": \"`go test ./internal/netlog/ ./internal/store/ -run 'Classify|Netlog'` → `ok`\", \"acceptanceCriteria\": [\"`Classify(err, bytesIn)` returns `ok`, `timeout`, `refused`, `reset`, `reset_after_kb` (≥ 1024 bytes in),\", \"`Store.NetlogAdd` merges into the newest line for the same `(peer, endpoint, direction)` when `result` and\", \"`Store.Netlog(limit)` returns newest first.\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Per-endpoint dialing, ranking, demotion, `dial_out_only`",
+      "status": "pending",
+      "description": "**Goal:** The replicator dials peers endpoint by endpoint in ranked order, logs every attempt and session end,\n\nSee plan section 'Task 3: Per-endpoint dialing, ranking, demotion, `dial_out_only`' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `go test ./internal/replication/ ./internal/meshsim/` → `ok`\n\n```json:metadata\n{\"files\": [\"otter-server/internal/meshsim/partition_test.go\", \"otter-server/internal/replication/dialer.go\", \"otter-server/internal/replication/endpoints.go\", \"otter-server/internal/replication/endpoints_test.go\"], \"verifyCommand\": \"`go test ./internal/replication/ ./internal/meshsim/` → `ok`\", \"acceptanceCriteria\": [\"`Ranker.Order` puts the last success (7 days) first, then admin `priority`, then manifest order; endpoints\", \"`MultiDialer.Dial` tries endpoints in that order and logs each attempt (`out`, class, detail).\", \"Nodes never dial a peer with `dial_out_only`; a `dial_out_only` node dials everyone.\", \"Inbound peer sessions are logged (`in`, endpoint = the listener name: `wss` or `reality`).\", \"An outbound session that ends with an error after ≥ 1 KB received and < 2 min logs `reset_after_kb` and counts\", \"All existing replication and meshsim tests pass.\"]}\n```",
+      "blockedBy": [
+        2
+      ]
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: REALITY package (Xray-core embedded)",
+      "status": "pending",
+      "description": "**Goal:** `internal/reality` starts a REALITY server that forwards authenticated streams to a local address, dials\n\nSee plan section 'Task 4: REALITY package (Xray-core embedded)' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `go test ./internal/reality/ -count=1 -v` → `ok`\n\n```json:metadata\n{\"files\": [\"internal/reality\", \"otter-server/go.mod\", \"otter-server/internal/reality/keys.go\"], \"verifyCommand\": \"`go test ./internal/reality/ -count=1 -v` → `ok`\", \"acceptanceCriteria\": [\"`GenerateKey()` returns a 32-byte private key and its X25519 public key, both base64 RawURL.\", \"A loopback test: server (dest = local TLS 1.3 test server) + client → an HTTP request through the tunnel reaches\", \"A plain TLS client connecting to the REALITY port (no VLESS key) gets the camouflage server's certificate.\", \"The server's only outbound is a `freedom` redirect: an authenticated client cannot reach any other address.\", \"`Check(ctx, host)` reports TLS 1.3, ALPN h2, certificate validity and latency; fails clearly otherwise.\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: Node config, wiring and commands",
+      "status": "pending",
+      "description": "**Goal:** `otter-node run` starts the REALITY listener when `[reality]` is configured and dials REALITY endpoints;\n\nSee plan section 'Task 5: Node config, wiring and commands' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `go test ./internal/config/ ./internal/nodecheck/ ./cmd/otter-node/ -count=1` → `ok`\n\n```json:metadata\n{\"files\": [\"cmd/otter-node/main.go\", \"cmd/otter-node/main_test.go\", \"internal/config/config_test.go\", \"internal/nodecheck/check.go\", \"internal/nodecheck/check_test.go\", \"otter-server/internal/config/config.go\"], \"verifyCommand\": \"`go test ./internal/config/ ./internal/nodecheck/ ./cmd/otter-node/ -count=1` → `ok`\", \"acceptanceCriteria\": [\"`[reality]` optional; when present all of `listen`, `private_key_file`, `dest`, `server_names`, `short_ids`,\", \"`otter-node check` reports the REALITY key file (readable, valid) when configured.\", \"`run`: an internal listener on `127.0.0.1:0` serves the same mux tagged `reality`; the WSS mux is tagged `wss`;\", \"`otter-node reality keygen --config F` writes `[reality].private_key_file` (refuses to overwrite) and prints\", \"`otter-node reality-check HOST...` prints one line per host and exits non-zero if none passes.\", \"`otter-node netlog --config F [--limit N] [--json]` prints newest first, e.g.\"]}\n```",
+      "blockedBy": [
+        3,
+        4
+      ]
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: meshsim censor scenarios over REALITY",
+      "status": "pending",
+      "description": "**Goal:** Prove end to end that replication runs over REALITY, falls back to WSS, and that probes see the\n\nSee plan section 'Task 6: meshsim censor scenarios over REALITY' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `go test ./internal/meshsim/ -run Reality -count=1 -v` → `ok`\n\n```json:metadata\n{\"files\": [\"otter-server/internal/meshsim/harness_test.go\", \"otter-server/internal/meshsim/reality_test.go\"], \"verifyCommand\": \"`go test ./internal/meshsim/ -run Reality -count=1 -v` → `ok`\", \"acceptanceCriteria\": [\"`ru` (dial_out_only) ↔ `fi` (REALITY + WS_PLAIN): with WS_PLAIN censored ru→fi, a user on `ru` and a user on\", \"Censoring REALITY instead (WS_PLAIN open): the message still arrives; netlog shows the fallback.\", \"A TLS probe to fi's REALITY port gets the camouflage certificate.\", \"`fi` has no outbound log lines for `ru`.\"]}\n```",
+      "blockedBy": [
+        5
+      ]
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: Deploy scripts",
+      "status": "pending",
+      "description": "**Goal:** The ops scripts set up REALITY safely, ask about `dial_out_only` on install, restore the config on\n\nSee plan section 'Task 7: Deploy scripts' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `bash deploy/test/scripts_test.sh` → `all tests passed` (or the file's existing success line)\n\n```json:metadata\n{\"files\": [\"deploy/README.md\", \"deploy/status.sh\", \"deploy/upgrade.sh\", \"otter-server/deploy/add-node.sh\", \"otter-server/deploy/reality-setup.sh\", \"otter-server/deploy/templates/otter-node.service\", \"otter-server/deploy/test/scripts_test.sh\"], \"verifyCommand\": \"`bash deploy/test/scripts_test.sh` → `all tests passed` (or the file's existing success line)\", \"acceptanceCriteria\": [\"New installs: unit has `AmbientCapabilities=CAP_NET_BIND_SERVICE` and\", \"`reality-setup.sh LABEL --dest HOST [--port 443]`: on the node, writes `[reality]` into `node.toml.new`, runs\", \"`add-node.sh` asks the dial-out-only question (default No), or takes `--dial-out-only` / `--no-dial-out-only`;\", \"`upgrade.sh` copies `node.toml` → `node.toml.prev` before the swap and restores it on rollback.\", \"`status.sh` shows the last 5 netlog lines per node.\", \"`deploy/test/scripts_test.sh` covers the prompt flags and the rollback config restore with its existing stubs.\"]}\n```",
+      "blockedBy": [
+        1,
+        5
+      ]
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: Android — failure classes, bytes counter, demotion",
+      "status": "pending",
+      "description": "**Goal:** The app classifies connection failures, counts bytes per connection, and demotes throttled endpoints.\n\nSee plan section 'Task 8: Android — failure classes, bytes counter, demotion' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `cd otter-android && ./gradlew :core:network:testDebugUnitTest` → `BUILD SUCCESSFUL`\n\n```json:metadata\n{\"files\": [\"core/network/src/test/kotlin/app/ottermsg/core/network/FailureClassTest.kt\", \"otter-android/core/network/src/main/kotlin/app/ottermsg/core/network/FailureClass.kt\", \"otter-android/scripts/sync-proto.sh\"], \"verifyCommand\": \"`cd otter-android && ./gradlew :core:network:testDebugUnitTest` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`classify(t, bytesIn)` maps `SocketTimeoutException` → TIMEOUT, `ConnectException` → REFUSED,\", \"`Connection.bytesIn` counts received bytes (OkHttp transport).\", \"`EndpointStats.throttled(key, now)` records a throttle; 3 within 24 h → demoted for 24 h; `NodeSelector.order`\", \"`NodeSelector` and `ConnectionManager` call `NetLog.add(...)` for every attempt and for a session that ends with\", \"Existing network tests pass.\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 9,
+      "subject": "Task 9: Android — Room `net_log`, stats migration, network info",
+      "status": "pending",
+      "description": "**Goal:** Persist the phone log (merged, 200 lines) and the throttle fields; DB version 7 via AutoMigration.\n\nSee plan section 'Task 9: Android — Room `net_log`, stats migration, network info' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `./gradlew :core:database:testDebugUnitTest :core:data:testDebugUnitTest` → `BUILD SUCCESSFUL`\n\n```json:metadata\n{\"files\": [\"core/data/.../di/DataModule.kt\", \"core/data/src/main/kotlin/app/ottermsg/core/data/network/RoomNetLog.kt\", \"core/data/src/test/.../RoomNetLogTest.kt\", \"core/database/src/androidTest/...\", \"core/database/src/main/kotlin/app/ottermsg/core/database/entity/NetLogEntity.kt\"], \"verifyCommand\": \"`./gradlew :core:database:testDebugUnitTest :core:data:testDebugUnitTest` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`net_log` merge: the newest row with the same `(node_label, endpoint, network)` and same `result` gets\", \"`endpoint_stats` gets three columns with defaults 0; AutoMigration 6→7 succeeds on a v6 database with data\", \"`network` is `wifi`/`mobile`/`other`/`none` from `ConnectivityManager`; `operator` from\"]}\n```",
+      "blockedBy": [
+        8
+      ]
+    },
+    {
+      "id": 10,
+      "subject": "Task 10: Android — «Журнал подключений» screen and version 0.7.0",
+      "status": "pending",
+      "description": "**Goal:** Settings → Подключение → «Журнал подключений» lists the log and shares it as text; app 0.7.0 (7).\n\nSee plan section 'Task 10: Android — «Журнал подключений» screen and version 0.7.0' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `./gradlew :feature:settings:testDebugUnitTest :app:assembleDebug` → `BUILD SUCCESSFUL`\n\n```json:metadata\n{\"files\": [\"app/build.gradle.kts\", \"app/src/main/java/app/ottermsg/AppNavHost.kt\", \"feature/settings/.../SettingsScreen.kt\", \"feature/settings/src/main/kotlin/app/ottermsg/feature/settings/NetLogScreen.kt\", \"feature/settings/src/main/res/values/strings.xml\", \"feature/settings/src/test/.../NetLogFormatTest.kt\"], \"verifyCommand\": \"`./gradlew :feature:settings:testDebugUnitTest :app:assembleDebug` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"Row «Журнал подключений» / \\\"Connection log\\\" under the connection status row opens the screen.\", \"Each line: time span (local), node, endpoint, network (+operator), result, `×count`, detail for failures;\", \"«Поделиться» shares the whole log as plain text via `Intent.ACTION_SEND` (chooser), first line\", \"App version 0.7.0, versionCode 7; debug and release builds succeed.\"]}\n```",
+      "blockedBy": [
+        9
+      ]
+    },
+    {
+      "id": 11,
+      "subject": "Task 11: Acceptance on the dev mesh and emulator",
+      "status": "pending",
+      "description": "**Goal:** Prove \"Done when\" locally before any real server is touched.\n\nSee plan section 'Task 11: Acceptance on the dev mesh and emulator' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** the checklist files exist and every local row is marked PASS with a date.\n\n```json:metadata\n{\"files\": [\"otter-android/docs/m7-manual-test.md\", \"otter-server/deploy/test/e2e-mesh.sh\", \"otter-server/docs/m7-manual-test.md\"], \"verifyCommand\": \"the checklist files exist and every local row is marked PASS with a date.\", \"acceptanceCriteria\": [\"Server: `make check`, `go test ./... -count=1`, `bash deploy/test/scripts_test.sh`, meshsim REALITY tests 3×\", \"Local two-node run (dev mesh, `.dev-mesh/`): node `fi` with `[reality]` on a high port (`listen = \\\"127.0.0.1:24443\\\"`,\", \"`curl -vk --resolve www.microsoft.com:24443:127.0.0.1 https://www.microsoft.com:24443/` against `fi` shows the\", \"App 0.6.0 → 0.7.0 update on the emulator through a dev news announcement keeps account, chats and news (Room\", \"Manual checklists list every row, mark what passed locally, and leave the real-network rows (eeee, ru-1,\"]}\n```",
+      "blockedBy": [
+        6,
+        7,
+        10
+      ]
+    },
+    {
+      "id": 12,
+      "subject": "Task 12: Docs, decisions, news draft, merge (after the owner says so)",
+      "status": "pending",
+      "description": "**Goal:** Docs describe M7 as built; the owner approves the merge.\n\nSee plan section 'Task 12: Docs, decisions, news draft, merge (after the owner says so)' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `scripts/secrets-check.sh` (both repos) → no findings; `git log --oneline -1` on `main` shows the merge\n\n```json:metadata\n{\"files\": [\"docs/00-decisions.md\", \"docs/03-mesh-replication.md\", \"docs/05-transport.md\", \"docs/09-roadmap.md\", \"docs/11-deployment.md\", \"otter-server/dist/news/0.7.0.md\"], \"verifyCommand\": \"`scripts/secrets-check.sh` (both repos) → no findings; `git log --oneline -1` on `main` shows the merge\", \"acceptanceCriteria\": [\"Decisions D70–D75 recorded with reasons as in the spec.\", \"`docs/05` no longer says \\\"Not yet implemented (M7)\\\" for demotion; describes netlog and REALITY between nodes.\", \"News draft `## ru` / `## en`, short, mentions «Журнал подключений» and faster/more reliable delivery in Russia;\", \"`scripts/secrets-check.sh` passes in both repos; the owner says \\\"merge\\\" → `git merge --no-ff m7-dpi` in each\"]}\n```",
+      "blockedBy": [
+        11
+      ]
+    },
+    {
+      "id": 13,
+      "subject": "Task 13: Owner steps on the real network (each asked first)",
+      "status": "pending",
+      "description": "**Goal:** M7 running on eeee and the ru-1 node; phones on 0.7.0.\n\nSee plan section 'Task 13: Owner steps on the real network (each asked first)' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** the real-network rows of both manual checklists are marked PASS by the owner.\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"the real-network rows of both manual checklists are marked PASS by the owner.\", \"acceptanceCriteria\": [\"eeee on 0.7.0 with REALITY on :443; the host's other services still work.\", \"ru-1 node installed, `dial_out_only`, in the published manifest.\", \"`otter-node netlog` on ru-1 shows `reality:...:443 out ok`; eeee shows `in reality ok` and no `out` to it.\", \"Fallback verified by temporarily dropping ru-1 → eeee:443 in ru-1's firewall, then restored.\", \"Both phones on 0.7.0 via the news update; a phone on the ru-1 node and a phone on eeee exchange messages.\"]}\n```",
+      "blockedBy": [
+        12
+      ]
+    }
+  ],
+  "lastUpdated": "2026-11-13T11:21:43"
+}
