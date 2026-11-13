@@ -6,7 +6,7 @@ to each other, survive hosting outages, and are designed to keep working under a
 DPI-based internet blocking.
 
 Status: **in development** — milestones M0–M7 (incl. M1.5, M1.6, M6.5) built as of 2026-11-13; M7 (REALITY between
-nodes, dial-out-only domestic node, connectivity log) with real-network checks open; next M8. Details per milestone in [09](09-roadmap.md).
+nodes, dial-out-only domestic node, connectivity log) with real-network checks open; next M8 (1:1 calls), then M8.5 (video) and M9 (hardening). Details per milestone in [09](09-roadmap.md).
 
 Code: [otter-server](https://github.com/Shuttle25/otter-server) (Go node + admin tools) and
 [otter-android](https://github.com/Shuttle25/otter-android) (Android app). Implementation plans for each milestone are in

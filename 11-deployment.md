@@ -27,7 +27,7 @@ Feature availability referenced here:
 | 2–3 nodes that sync with each other; manifest updates reaching apps | M2 |
 | Push wake-ups (FCM, optional), `push-key.sh`, `node set-push` | M5 (§12) |
 | VLESS + REALITY transport | M7 (port layout revisited there, §9) |
-| `otter-node status`, `backup`, `/metrics` | M8 |
+| `otter-node status`, `backup`, `/metrics` | M9 |
 
 Until M2, **deploy one node**. A second node would run, but it would not share messages with the first.
 
@@ -431,7 +431,7 @@ the SSH checks when a target is given. `install.sh` and `upgrade.sh` run the ser
 | M5 (done) | Optional `/etc/otter/fcm.json` (Firebase service account) on push-capable nodes, installed with `deploy/push-key.sh`; `[push]` in `node.toml`; DB migration 0006 runs on upgrade. Upgrade a node to M5 **before** `push-key.sh` (§12) |
 | M6 (done) | `/var/lib/otter/blobs/` also holds members' password backups (persistent blobs, ≤ 3 per member, counted in `user_quota`); nothing to configure; DB migration 0005 runs on upgrade. Upgrade all nodes (`upgrade-all.sh`) before relying on restore: an older node answers `auth.login` without `installed_ms` and does not know the backup methods |
 | M7 (done) | Optional `[reality]` in `node.toml` + `/etc/otter/reality.key` on foreign nodes, listening on :443 (`CAP_NET_BIND_SERVICE`; clients stay on the node port, D26 revised for REALITY only), set up with `deploy/reality-setup.sh` after the node runs 0.7.0; `dial_out_only` for a domestic node (`add-node.sh` asks); DB migration 0008 (`netlog`); `upgrade.sh` also rolls back `node.toml` (§13) |
-| M8 | `otter-node status`, `/metrics` on localhost; alerting examples (`backup` and `check` arrived in M1.5, D41) |
+| M9 | `otter-node status`, `/metrics` on localhost; alerting examples (`backup` and `check` arrived in M1.5, D41) |
 
 ---
 

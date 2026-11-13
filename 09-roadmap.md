@@ -27,14 +27,20 @@ Each milestone ends with something runnable and tested.
 | M6 | Backup & restore | backup meta, auth, rate limits, eager replication | password backup, restore flow, session reset | wipe phone → restore with username + password → history back, contacts can keep chatting — **done 2026-11-12** (see M6 notes; two-phone checks open) |
 | M6.5 | Otter news | `ANNOUNCEMENT` record signed by a news key listed in the manifest, validation + replication, `otter-admin announce`, push to all, APK served by the nodes | read-only «Новости Выдры» chat, optional «Обновить» button (APK from the nodes, SHA-256 checked), notification | admin sends one announcement from the PC → every member's app shows it (and a notification on FCM phones) within seconds; a forged announcement is rejected — **done 2026-11-13** (see M6.5 notes; two-phone and production rows open) |
 | M7 | DPI transports | embedded Xray REALITY inbound/outbound between nodes, `dial_out_only` domestic node, per-endpoint ranked dialing + demotion, connectivity log, `reality-setup.sh` (CDN-WSS postponed, D75) | failure classes + demotion on throttling, «Журнал подключений» (no REALITY in the app, D75) | with direct WSS domestic → foreign blocked, messages flow phone ↔ domestic node ↔ REALITY ↔ foreign node ↔ phone; probes see the camouflage site — **done 2026-11-13** (see M7 notes; real-network rows open) |
-| M8 | Hardening & ops | revocation, limits, metrics, status, deploy scripts | app lock, settings polish, network status screen | 3-node deployment guide followed from scratch by someone else |
+| M8 | 1:1 audio calls | TURN relay embedded in `otter-node` (Pion; UDP 3478 + TCP/TLS fallback), `turn.credentials` (short-lived HMAC, logged-in non-revoked members only), allocation/bandwidth limits, call results in `netlog`, firewall step in `add-node.sh`/`upgrade.sh` | WebRTC (Opus), signaling as Signal-encrypted 1:1 contents (`call_offer`/`call_answer`/`ice_candidate`/`call_hangup`, offer is urgent → FCM), DTLS fingerprints inside the encrypted offer, ICE with every path (direct, both relays, TCP), «Звонки только через сервер» (default on, hides IPs), CallStyle full-screen ringing + `phoneCall` FGS + Telecom `ConnectionService`, call screen, missed-call entries; SAVER phones can't ring (caller is told) | phone on RU mobile (domestic node) ↔ phone on foreign Wi-Fi (eeee) hold a 5-min relay-only call; the relay can't decrypt; UDP blocked → call still works over TCP/TLS; a revoked user gets no TURN credentials |
+| M8.5 | 1:1 video calls | TURN bandwidth caps raised for video, per-call bitrate logging | camera on/off, front/back switch, picture-in-picture, adaptive bitrate (audio-only fallback on throttled links) | same two phones hold a 5-min video call over the relays; throttled link degrades to audio instead of dropping |
+| M9 | Security & ops hardening (**discuss with the owner before planning**) | user revocation (`otter-admin user revoke/list`, `can_invite` revoke), per-user quotas + per-IP limits + disk floor, replication keep-alive ping (25 s) with `netlog`, monitoring in `status.sh` + `otter-node status` + `/metrics` (lag, backlog, disk, push errors), deployment guide | groups drop revoked members and rotate sender keys, app lock (PIN/biometric, optional `FLAG_SECURE`), network status screen + battery-optimization helper, WebSocket ping 30 s, settings polish, username-conflict rename screen (D31); optional invite-unlocked APK download (changes the M6.5 rule) | lost phone cut off by one admin command; 3-node deployment guide followed from scratch by someone else |
 
-Recommended build order is exactly M0→M8 (M6.5 before M7, owner request); M7 can move earlier if blocking is immediate
+Recommended build order is M0→M9 (M6.5 before M7; calls M8/M8.5 before hardening M9, owner request 2026-11-13); M7 can move earlier if blocking is immediate
 (the transport interface exists from M1, so only the REALITY implementation is deferred).
 
-## V1.x (after M8)
+## V1.x (after M9)
+
+* **Instant mode**: optional persistent connection (foreground service, adaptive keep-alive) for phones where FCM is
+  late or missing; also lets SAVER phones ring for calls (P8, D61).
 
 * Files and voice messages in the UI (protocol/node already support generic blobs; D18).
+* Other services on the owner's servers (not Otter): keep them off the public internet (owner, any time).
 * REALITY in the app (libXray via gomobile, SOCKS5 on `127.0.0.1` with random per-session credentials), if a
   domestic node is not enough (D75).
 * CDN-fronted WSS (`via_cdn`), if phones ever need to reach a foreign node directly (D75).
@@ -42,7 +48,7 @@ Recommended build order is exactly M0→M8 (M6.5 before M7, owner request); M7 c
 
 ## V2 (later)
 
-* Voice & video calls (WebRTC, media relay over the mesh / REALITY).
+* Group calls; media relay between nodes over the mesh / REALITY (1:1 calls are M8/M8.5).
 * Multi-device (phone + tablet/desktop): per-device keys, already addressable.
 * Desktop client.
 * Sealed sender (hide sender from nodes).
@@ -225,7 +231,7 @@ Deviations from the M2 plan:
 
 Open issues for M3+:
 - Endpoint failure classification/demotion and the FCM wake-up path (docs/05) — M5/M7.
-- Username conflicts (`name#xxxx`) have no UI yet — M8.
+- Username conflicts (`name#xxxx`) have no UI yet — M9.
 - ~~`PREKEY_CONSUMED` from a node not in the receiver's manifest version stalls that peer session~~ → skipped (M3).
 - Debug APK above 60 MB (unchanged from M1).
 - ~~Returning to the app during a reconnect backoff waits out the rest of the pause~~ → `ForegroundSync` retries at once (M3).

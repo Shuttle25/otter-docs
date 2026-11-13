@@ -86,7 +86,7 @@ Records from peers never fail on business conflicts (clients get errors only for
 * **Username clash**: the user whose directory entry has the lower `(registered_ms, user_id)` keeps the
   name (`registered_ms` = first registration, copied into every later version; the record's `created_ms`
   when 0 for M1–M3 entries, D40), so a profile update never changes the outcome; the other becomes `name#<first 4 bytes of user_id, hex>` on every node, independent of arrival
-  order. (A rename screen comes in M8.)
+  order. (A rename screen comes in M9.)
 * **One-time prekeys**: each key is owned by one node, which alone hands it out; when it does, it
   writes a node-signed `PREKEY_CONSUMED{user, device, key_ids}` record that replicates, so every node
   knows how many keys each owner has left. A user's app refills keys per owner (`prekeys_low{owner_node}`).
