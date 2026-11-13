@@ -129,6 +129,7 @@ message Content {
     GroupUpdate           group_update = 3; // signed group state (M3)
     SenderKeyDistribution sender_key   = 4; // a member's sender key for one group (M3)
     SessionReset          session_reset = 5; // M6, D53: "I was restored, start a new session" (empty)
+    CallMessage           call         = 6; // M8, D78: 1:1 call signaling
     // Profiles travel in the directory, not in E2E content (D14/D39).
   }
   int64 sent_ms = 10;
@@ -136,6 +137,14 @@ message Content {
 message DataMessage { bytes message_id = 1; string text = 2; GroupContext group = 3; }
 message GroupContext { bytes group_id = 1; }
 ```
+
+**Call signaling (M8, D78).** `CallMessage{call_id (16 random bytes, chosen by the caller), oneof kind {offer
+CallOffer{sdp, restart}, answer CallAnswer{sdp}, candidates IceCandidates{repeated IceCandidate{sdp_mid,
+sdp_mline_index, candidate}}, hangup CallHangup{reason NORMAL|BUSY|DECLINED|TIMEOUT|FAILED}}}`. Sent 1:1 as an
+ordinary Signal-encrypted envelope, **urgent**, record `expires_ms = created + 120 000` (nodes stop delivering and
+purge it after that). Only the offer gets a receipt: DELIVERED with message id = `call_id` (the caller shows
+«Звонит…»). The SDP carries the DTLS fingerprints, so nodes and TURN relays cannot intercept the media. Apps
+before 0.8.0 ignore the `call` case (they ack it, show nothing, but may create an empty direct chat).
 
 ### Groups (M3)
 
@@ -240,6 +249,8 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 | `push.register{Record PUSH_TOKEN}` | `RecordRequest` with the signed `PUSH_TOKEN` (M5, D60); the app sends it after login only when its FCM token changed. A pre-M5 node answers INVALID "unknown method" (harmless) |
 | `news.publish{Record}` | **public**, like `manifest.publish`: an ANNOUNCEMENT or ANNOUNCEMENT_DELETED signed by a current news key; idempotent; `otter-admin announce` sends it to every node (D67) |
 | `news.list` → `RecordBatch` | logged in: every stored ANNOUNCEMENT and ANNOUNCEMENT_DELETED, oldest first (D67) |
+| `turn.credentials{}` → `TurnCredentials` | logged in (M8, D77): TURN-REST username/password for **this** node's relay, `ttl_s` 43200, `urls` (`turn:IP:3478?transport=udp`, `…?transport=tcp`, `turns:IP:5349?transport=tcp`); TURN off → UNAVAILABLE (9); pre-M8 nodes → INVALID |
+| `push.status{user_id}` → `PushStatus{has_push}` | logged in (M8): true if this node holds a PUSH_TOKEN for (user, device 1); the caller warns that a phone without push may not ring |
 | `apk.get{sha256, index}` → `ApkChunk{data, total_size}` | logged in: 1 MiB chunk of an APK imported with `otter-node apk import`; unknown hash / index past the end → NOT_FOUND (D68) |
 | `ping` | keep-alive / RTT measurement |
 
@@ -247,7 +258,7 @@ Events: `hello`, `envelope` (mailbox delivery, batched), `manifest` (newer versi
 `directory` (changes), `prekeys_low`, `news` (`Empty`: an announcement was accepted or dropped → re-fetch `news.list`, D67).
 
 Status codes: 0 OK, 1 retry-later, 2 unauthorized, 3 invalid-signature, 4 quota, 5 not-found,
-6 revoked, 7 conflict (e.g. username taken).
+6 revoked, 7 conflict (e.g. username taken), 9 unavailable (feature off on this node, e.g. TURN; M8).
 
 ## 5. Prekeys across nodes
 
