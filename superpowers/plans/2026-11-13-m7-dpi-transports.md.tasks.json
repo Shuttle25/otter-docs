@@ -104,7 +104,7 @@
     {
       "id": 12,
       "subject": "Task 12: Docs, decisions, news draft, merge (after the owner says so)",
-      "status": "in_progress",
+      "status": "completed",
       "description": "**Goal:** Docs describe M7 as built; the owner approves the merge.\n\nSee plan section 'Task 12: Docs, decisions, news draft, merge (after the owner says so)' in 2026-11-13-m7-dpi-transports.md for files, code and steps.\n\n**Verify:** `scripts/secrets-check.sh` (both repos) → no findings; `git log --oneline -1` on `main` shows the merge\n\n```json:metadata\n{\"files\": [\"docs/00-decisions.md\", \"docs/03-mesh-replication.md\", \"docs/05-transport.md\", \"docs/09-roadmap.md\", \"docs/11-deployment.md\", \"otter-server/dist/news/0.7.0.md\"], \"verifyCommand\": \"`scripts/secrets-check.sh` (both repos) → no findings; `git log --oneline -1` on `main` shows the merge\", \"acceptanceCriteria\": [\"Decisions D70–D75 recorded with reasons as in the spec.\", \"`docs/05` no longer says \\\"Not yet implemented (M7)\\\" for demotion; describes netlog and REALITY between nodes.\", \"News draft `## ru` / `## en`, short, mentions «Журнал подключений» and faster/more reliable delivery in Russia;\", \"`scripts/secrets-check.sh` passes in both repos; the owner says \\\"merge\\\" → `git merge --no-ff m7-dpi` in each\"]}\n```",
       "blockedBy": [
         11
@@ -120,5 +120,5 @@
       ]
     }
   ],
-  "lastUpdated": "2026-11-13T12:31:55"
+  "lastUpdated": "2026-11-13T13:23:42"
 }
