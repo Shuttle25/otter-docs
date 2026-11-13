@@ -87,6 +87,22 @@ phone ──WSS :27443──▶ ru node (ru-1, dial_out_only) ──REALITY :443
 * Settings → Подключение → «Журнал подключений»: list (newest first) + «Поделиться» (plain text via the share sheet).
   Nothing is sent automatically.
 
+## Backward compatibility
+* **Phones 0.6.0 ↔ nodes 0.7.0:** no client protocol change. The 0.6.0 app already skips `REALITY` endpoints
+  (`core/network/Endpoints.kt`) and ignores unknown manifest fields.
+* **Manifest:** records are signed over the raw body bytes, so old nodes and apps verify a manifest with the new
+  `dial_out_only` field and ignore it (same as `news_keys` in M6.5). Old nodes' dialers skip `REALITY` endpoints.
+* **Mixed node versions:** the `/peer` protocol is unchanged; a 0.7.0 node reaches a 0.6.0 peer over WSS. A 0.6.0 node
+  ignores `dial_out_only` and would still try to dial the domestic node (harmless, but it breaks the "never dial into
+  Russia" rule) → set the flag only after every node runs 0.7.0.
+* **Server DB:** one additive migration (`netlog`); the 0.6.0 binary still opens the DB (it ignores unknown
+  migrations/tables), so `upgrade.sh`'s binary rollback keeps working.
+* **Config:** `otter-node` rejects unknown config keys, so a 0.6.0 binary will **not start** with a `[reality]`
+  section. `[reality]` is added in a separate step after 0.7.0 is healthy; `upgrade.sh` gets a config backup and
+  restores `node.toml` together with the binary on rollback; a manual downgrade removes `[reality]` first.
+* **App DB:** Room migration 0.6 → 0.7 adds `net_log` (additive, tested with a migration test; no destructive
+  fallback), so updating via the news button keeps accounts, chats and news.
+
 ## Versions and release
 Server 0.7.0, app 0.7.0 (versionCode 7, release-signed). Server via `upgrade-all.sh`; app via `release-apk.sh` +
 news (RU/EN draft in `dist/news/0.7.0.md`).
