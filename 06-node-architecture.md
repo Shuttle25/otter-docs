@@ -224,7 +224,7 @@ enabled  = true
 relay_ip = "203.0.113.10"    # the node's public IPv4
 # defaults: udp_listen = tcp_listen = ":3478", tls_listen = ":5349" (only with [wss] TLS),
 # relay_port_min/max = 49160/49200, secret_file = "/etc/otter/turn.secret", realm = "otter",
-# max_allocations_per_user = 4, max_allocations = port range, relay_kbps = 200, allow_private_peers = false
+# max_allocations_per_user = 12, max_allocations = port range, relay_kbps = 200, allow_private_peers = false
 ```
 
 ## Observability
