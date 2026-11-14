@@ -324,8 +324,9 @@ Message contents never appear in logs; they don't exist on the server in readabl
 `deploy/upgrade.sh root@host dist/otter-node_0.2.0_linux_amd64` does the following:
 
 1. Copies the new binary to `/usr/local/bin/otter-node.new` and verifies its checksum on the server.
-2. Backs up the database with the **installed** binary (`otter-node backup` → `/var/backups/otter/pre-upgrade-<ts>.db`),
-   so database migrations can be rolled back by restoring.
+2. Backs up the database with the **installed** binary (`otter-node backup` → `/var/backups/otter/pre-upgrade-<ts>.db`)
+   (0600; the newest 3 pre-upgrade copies are kept), so database migrations can be rolled back by restoring. Since
+   0.8.3 the chmod, the pruning and a rollback's restore run as `otter`, never as root (D82, D84).
 3. `systemctl stop otter-node`, swaps binaries (keeps `otter-node.prev` and, since M7, `node.toml.prev`), starts
    the node.
 4. Health check (`/usr/local/lib/otter/health.sh`: pinned hello on `127.0.0.1:<port>`, up to 20 s). If it fails:
@@ -350,7 +351,9 @@ caught up before doing the next one. `deploy/upgrade-all.sh` does this for you, 
 
 Consistent DB copy while the node runs: `otter-node backup --config /etc/otter/node.toml --out FILE`
 (`VACUUM INTO`; no `sqlite3` CLI needed, D41). `/usr/local/lib/otter/backup.sh --install` enables a daily systemd
-timer (`otter-backup.timer`, runs as `otter`) that keeps 7 copies in `/var/backups/otter/`. Backups contain only ciphertext and metadata, but
+timer (`otter-backup.timer`, runs as `otter`) that keeps 7 copies in `/var/backups/otter/`. Since 0.8.3 every copy
+is created 0600 in the 0700 directory `/var/backups/otter/` (`O_EXCL|O_NOFOLLOW`, whatever the umask; `upgrade.sh`
+also sets older copies to 0600), and only the newest 3 `pre-upgrade-*.db` are kept (D84). Backups contain only ciphertext and metadata, but
 they **do** reveal who talks to whom, so keep them on the server or in encrypted storage. Hetzner and
 Linode server snapshots are a convenient extra layer.
 
@@ -411,6 +414,9 @@ the SSH checks when a target is given. `install.sh` and `upgrade.sh` run the ser
 * Inbound: only SSH, the node port and (with REALITY, §13) the REALITY port, using ufw or the Hetzner/Linode cloud
   firewall.
 * `node.key` and `tls.key` are readable only by root and the `otter` group; the network key is never on a server.
+* Root never handles files in `/var/lib/otter` or `/var/backups/otter`; deploy scripts do that as `otter` (D82).
+  Files root holds (APKs, invites) reach `otter` on stdin; `release-apk.sh` refuses nodes older than 0.8.3.
+* The connectivity log (`otter-node netlog`) forgets lines not updated for 7 days, rejected source IPs included (D85).
 * Servers hold no secrets that can read messages. A seized server exposes metadata ([04](04-security.md)),
   and its TLS key would let someone impersonate that node at the transport layer. Rotate it (§6). Message
   content stays end-to-end encrypted regardless.
