@@ -10,10 +10,8 @@ echo "==> gitleaks: full history"
 echo "==> tracked files: private addresses, home paths, e-mail addresses"
 # private IPv4 ranges (RFC 1918); each match is judged alone, so an emulator address cannot hide a real one.
 # Findings print file:line only, never the matched text.
-# The M9 plan is excluded: it quotes the test fixture (an emulator address next to a made-up 10.x one).
 priv=$(git grep -noIE '\b(10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3})\b' \
-     -- ':!*.lock' ':!**/testdata/**' ':!**/vectors/**' ':!scripts/secrets-check_test.sh' \
-     ':!superpowers/plans/2026-11-14-m9-security-hardening.md*' | grep -vE ':(10\.0\.2\.2|10\.0\.2\.15)$' | cut -d: -f1,2 | sort -u || true)
+     -- ':!*.lock' ':!**/testdata/**' ':!**/vectors/**' ':!scripts/secrets-check_test.sh' | grep -vE ':(10\.0\.2\.2|10\.0\.2\.15)$' | cut -d: -f1,2 | sort -u || true)
 if [[ -n "$priv" ]]; then
   echo "$priv"; echo "private IP address in a tracked file (use 192.168.x.y / 203.0.113.x placeholders)"; fail=1
 fi

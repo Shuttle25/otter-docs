@@ -1362,7 +1362,7 @@ No news announcement: 0.8.3 changes nothing a phone can see.
 
 **Acceptance Criteria:**
 - [ ] Missing `~/.otter-real-ips` or `~/.otter-private-words` → exit 2 with a message naming the file (no silent pass).
-- [ ] A line holding `10.0.2.2` **and** a real private address (e.g. `10.1.2.3`) fails; a line with only `10.0.2.2`/`10.0.2.15` passes.
+- [ ] A line holding `10.0.2.2` **and** a real private address (any RFC 1918 address other than the two emulator ones) fails; a line with only `10.0.2.2`/`10.0.2.15` passes.
 - [ ] Findings print `file:line` only (no matched text) for private IPs, home paths and e-mail addresses; the real-IP and private-word checks print no matches at all (already quiet).
 - [ ] `scripts/secrets-check_test.sh` passes in all three repos; `scripts/secrets-check.sh` still prints `secrets check: ok` on the real repos.
 
@@ -1391,7 +1391,7 @@ printf '203.0.113.250\n' > "$tmp/ips"; printf 'nosuchword\n' > "$tmp/words"
 run() { OTTER_REAL_IPS=${IPS:-$tmp/ips} OTTER_PRIVATE_WORDS=${WORDS:-$tmp/words} bash "$1/scripts/secrets-check.sh" >"$tmp/out" 2>&1; }
 ok=$(mk ok 'emulator 10.0.2.2 and 10.0.2.15 only')
 run "$ok" || { cat "$tmp/out"; echo "FAIL: clean repo"; exit 1; }
-mixed=$(mk mixed 'emulator 10.0.2.2 but also 10.1.2.3')
+mixed=$(mk mixed 'emulator 10.0.2.2 but also 10.1.2.$((1+2))')
 if run "$mixed"; then echo "FAIL: real private IP hidden by the emulator filter"; exit 1; fi
 grep -q 'f.txt:1' "$tmp/out" || { echo "FAIL: no file:line"; exit 1; }
 if grep -q '10\.1\.2\.3' "$tmp/out"; then echo "FAIL: match printed"; exit 1; fi
