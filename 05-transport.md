@@ -31,7 +31,8 @@ hosting outages.
   connects to CDN IPs, so blocking the node's IP doesn't matter; SNI is the CDN-hosted domain.
   **Node links (D131):** a node can carry an extra, unpinned WSS endpoint behind a CDN (priority 10) for peers whose
   path to its address is frozen by DPI (D130 detects the freeze and moves on); phones only reach it after every direct
-  endpoint failed.
+  endpoint failed. **It did not help from Russia (D132):** traffic a CDN proxies from a foreign origin froze at
+  ~18–20 KB like the direct links; it stays as a generic capability.
 * Client: OkHttp on Android → TLS fingerprint identical to millions of ordinary Android apps.
 * Pinning: the manifest carries the node's TLS SPKI pins (`tls_spki_pins`, several during rotation);
   the app accepts only a leaf certificate matching a pin. Endpoints without pins use normal CA validation. Behind a CDN the CDN terminates TLS, so authentication relies on the inner
@@ -43,7 +44,7 @@ hosting outages.
   unauthenticated probes are transparently forwarded to that real site, so active probing
   sees a genuine site.
 * **Between nodes only (M7, D70, D72).** Phones don't speak REALITY in V1 (D75); release apps skip `REALITY`
-  endpoints.
+  endpoints. From Russia to foreign hosting REALITY froze like WSS (2026-11-15, D132); it stays as a capability.
 * Server (`[reality]` in `node.toml`, set up by `deploy/reality-setup.sh`): `otter-node` embeds Xray-core
   (v1.260327.0, only the features used, +5 MB) with a VLESS+REALITY inbound on **:443** whose only outbound is a
   `freedom` redirect to an internal plain-HTTP listener on `127.0.0.1:<random port>`. That listener serves the same
@@ -65,15 +66,20 @@ certificate from the manifest) or REALITY on :443, then runs a mutual Ed25519 ch
 ([03](03-mesh-replication.md#peer-sync-protocol)). `WS_PLAIN` peer endpoints are dialed only with
 `[mesh] allow_plain = true` (development).
 
-Topology for a censored country (M7, D70, D71):
+Topology for a censored country (D70, D132; replaces the M7 `dial_out_only` topology for Russia):
 
 ```
-phone ──WSS (node port)──▶ domestic node (dial_out_only) ──REALITY :443──▶ foreign node
-                                                         └─ fallback: WSS (node port)
+phone ──WSS (node port)──▶ domestic node ◀──WSS (node port, pinned)── foreign node
+                                         (session started abroad, carries both directions)
 ```
 
-* The domestic node is `dial_out_only`: it dials every foreign node, none of them dials it. One session carries
-  both directions.
+* The domestic node keeps `dial_out_only` **off** and its node port reachable from abroad; the foreign nodes dial
+  it. One session carries both directions (D71). Real network, 2026-11-15: every connection the node in Russia
+  started to foreign hosting froze after ~11–20 KB (direct WSS, REALITY on :443, a CDN-proxied hostname), while
+  connections started from abroad carried bulk data (D132).
+* D130's 25 s ping ends a frozen session within a minute and ranks that endpoint down, so a freeze in either
+  direction is detected and redialed instead of hanging.
+* `dial_out_only` (D71) stays for a node that cannot accept inbound connections at all (e.g. behind NAT).
 * Endpoints are tried one by one in ranked order (last success within 7 days → admin `priority` → manifest order →
   failed in the last 10 min → demoted), the same rule as on the phone; first success wins and is tried first next
   time. The ranking lives in memory, so a restart starts from manifest order (WSS first).
@@ -94,7 +100,7 @@ message NodeInfo {
   bytes node_id = 1; bytes node_pub = 2; string label = 3;
   bool  push_capable = 4;            // has an FCM key and can reach Google (otter-admin node set-push, D58)
   repeated Endpoint endpoints = 5;
-  bool  dial_out_only = 6;           // inside a censored network: dials peers, is never dialed (M7, D71)
+  bool  dial_out_only = 6;           // cannot accept inbound (e.g. NAT): dials peers, is never dialed (M7, D71; not for Russia, D132)
 }
 message Endpoint {
   enum Kind { WSS = 0; REALITY = 1; WS_PLAIN = 2; }  // WS_PLAIN: development only, refused by release apps

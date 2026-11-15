@@ -71,8 +71,9 @@ Principles:
 * The domain never appears in public Certificate Transparency logs, which a public
   certificate would expose.
 * Trade-off: anyone probing `https://domain:27443/` sees a self-signed certificate. That's common
-  on non-standard ports, but less inconspicuous than a public one. REALITY between nodes (M7, §13) is the
-  answer for heavy DPI on the link out of a censored country.
+  on non-standard ports, but less inconspicuous than a public one. REALITY between nodes (M7, §13) was meant
+  for heavy DPI on the link out of a censored country; from Russia it froze too, and the foreign nodes dial the
+  domestic node instead (D132).
 
 ---
 
@@ -422,8 +423,8 @@ the SSH checks when a target is given. `install.sh` and `upgrade.sh` run the ser
   content stays end-to-end encrypted regardless.
 * **Blocking note:** connections to well-known foreign hosting ranges (Hetzner and Linode included)
   are a common target for throttling, and a rare port with a self-signed certificate is easier to
-  single out than 443 with a public certificate. The answer since M7: phones in the restricted network use a
-  domestic `dial_out_only` node, which reaches the foreign nodes over REALITY on :443 (§13). A bare-metal machine
+  single out than 443 with a public certificate. Phones in the restricted network use a domestic node; the
+  foreign nodes dial it, because links it starts out of Russia freeze after a few KB (D132, §13). A bare-metal machine
   inside the restricted network is a good candidate for that domestic node.
 
 ---
@@ -496,7 +497,7 @@ get LABEL | list | rm LABEL`. An already deployed node is registered with `hosts
 
 | Script | What it does |
 |--------|--------------|
-| `add-node.sh LABEL root@HOST --ip IP [--ip IPv6] [--domain D] [--wss-port P] [--ssh-port N] [--version V] [--dial-out-only\|--no-dial-out-only]` | Registers the node (for a new node asks whether it is inside a censored network → `dial_out_only`, M7), signs the manifest if it doesn't list the node yet, records the host, waits for DNS (with `--domain`), builds the bundle (with `--version`), runs `push.sh` (install + checks), then publishes the manifest to the other nodes |
+| `add-node.sh LABEL root@HOST --ip IP [--ip IPv6] [--domain D] [--wss-port P] [--ssh-port N] [--version V] [--dial-out-only\|--no-dial-out-only]` | Registers the node (for a new node asks whether to make it `dial_out_only`, M7: only for a node that cannot accept inbound connections; never for a node in Russia, D132), signs the manifest if it doesn't list the node yet, records the host, waits for DNS (with `--domain`), builds the bundle (with `--version`), runs `push.sh` (install + checks), then publishes the manifest to the other nodes |
 | `status.sh` | One row per node: target, version, pinned hello, service state, `otter-node stats` counts, size of `/var/lib/otter`, PUSH (M5); then the last 5 connectivity log lines per node (M7). Read-only; exit 1 on any problem |
 | `upgrade-all.sh VERSION [--only LABEL]...` | Builds the release if missing; per node detects the CPU architecture, skips nodes already on VERSION, runs `upgrade.sh`; prints a summary |
 | `hosts.sh` | The registry above |
@@ -565,11 +566,13 @@ Not run against a real server yet (2026-11-12). Offline tests (`deploy/test/scri
 For a network with members inside a censored country (D70–D75). One-screen version: `otter-server/deploy/README.md`
 "REALITY and dial-out-only nodes".
 
-**Domestic node.** Install it with `add-node.sh` and answer **yes** to «Is LABEL inside a censored network (e.g.
-Russia)? It will dial out to the other nodes and is never dialed by them. [y/N]» (or pass `--dial-out-only`;
-without a terminal the answer is No). The flag goes into the same manifest signature; re-runs keep it. Existing
-node: `otter-admin node set-dial-out-only --label L [--off]` → `manifest sign` + `manifest publish`. Set it only
-when every node runs 0.7.0: an older node ignores the flag and keeps dialing.
+**Domestic node (D132).** Install it with `add-node.sh` and answer **No** to «Make LABEL dial-out-only? …
+[y/N]» (the default; or pass `--no-dial-out-only`); keep its node port reachable from abroad. The foreign nodes dial
+it and one session carries both directions. On 2026-11-15 every link the node in Russia started to foreign hosting
+froze after ~11–20 KB (direct WSS, REALITY, a CDN-proxied hostname), while links started from abroad carried bulk
+data. A node marked earlier: `otter-admin node set-dial-out-only --label L --off` → `manifest sign` + `manifest
+publish`. Dial-out-only stays for a node that cannot accept inbound connections (e.g. behind NAT); the flag goes into
+the same manifest signature, re-runs keep it, and it needs every node on 0.7.0+ (an older node ignores it).
 
 **REALITY on a foreign node** (node on 0.7.0+, `upgrade-all.sh` first). Choose the camouflage site from the node:
 

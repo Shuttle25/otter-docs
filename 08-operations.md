@@ -32,7 +32,8 @@ otter-admin node add --label fi-1 \
                                             # generates node.key + reality keys, prints node bundle
 otter-admin node remove fi-1
 otter-admin node set-push --label fi-1 [--off]   # M5: mark push_capable (after deploy/push-key.sh)
-otter-admin node set-dial-out-only --label ru-1 [--off]   # M7: never dialed by the other nodes (D71)
+otter-admin node set-dial-out-only --label L [--off]     # M7: never dialed by the other nodes (D71); only for a
+                                            # node that cannot accept inbound; a node in Russia stays --off (D132)
 otter-admin node add-reality --label fi-1 --host H --port 443 --pub B64URL --server-name dl.google.com
                                             # M7: REALITY endpoint (normally via deploy/reality-setup.sh, D72)
 otter-admin news init | show | revoke --pub HEX  # M6.5: news key in the desktop keyring (D65); then manifest sign

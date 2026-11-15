@@ -37,12 +37,12 @@
     {
       "id": 4,
       "subject": "Task 5: Release 0.8.4 and rollout (the owner runs every command)",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** eeee and ru-1 run 0.8.4, eeee carries a Cloudflare-fronted endpoint, and ru-1's session to eeee holds.\n\n**Verify:** owner on ru-1: `journalctl -u otter-node --since \"-30min\" -o cat | grep -c \"peer session down\"` → `0`\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"owner on ru-1: `journalctl -u otter-node --since \\\"-30min\\\" -o cat | grep -c \\\"peer session down\\\"` \\u2192 `0`\", \"acceptanceCriteria\": [\"`make check`, scripts and bundle tests (scratch copy), and `secrets-check.sh` in both repos pass.\", \"Merged `--no-ff` to `main` and pushed only after the owner's OK; worktrees removed.\", \"eeee and ru-1 report `0.8.4 active` in `deploy/status.sh`.\", \"`otter-admin node list` shows eeee's second WSS line `cdn=true pin=-`.\", \"On ru-1, `otter-node netlog` shows `wss:<cdn-host>:443 out ok`, and `journalctl` shows no `peer session down` for 30 min.\"]}\n```",
       "blockedBy": [
         3
       ]
     }
   ],
-  "lastUpdated": "2026-11-15T17:01:18.602894+00:00"
+  "lastUpdated": "2026-11-15T18:53:42.126685+00:00"
 }

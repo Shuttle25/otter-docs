@@ -39,8 +39,9 @@ one-way blocking: whichever side can reach the other dials.
 
 **Dial-out-only nodes (M7, D71).** A node marked `dial_out_only` in the manifest (`otter-admin node
 set-dial-out-only`, asked by `deploy/add-node.sh`) is never dialed by the others; it dials every peer itself (two
-dial-out-only nodes still dial each other). Use it for a domestic node inside a censored network; set it only once
-every node runs 0.7.0 (older nodes ignore the flag).
+dial-out-only nodes still dial each other). Use it only for a node that cannot accept inbound connections (e.g.
+behind NAT); set it only once every node runs 0.7.0 (older nodes ignore the flag). **Not for a node in Russia
+(D132):** every link it started to foreign hosting froze, so it keeps the flag off and the foreign nodes dial it.
 
 **Per-endpoint dialing (M7, D73).** A dial tries the peer's usable endpoints one at a time (WSS pinned, REALITY on
 :443 when the peer has one, `WS_PLAIN` only with `allow_plain`), each with a 15 s timeout, in ranked order: last

@@ -37,8 +37,8 @@ signed ciphertext. Messages are encrypted with the Signal protocol (libsignal): 
 Ratchet for 1:1, Sender Keys for groups. Any node can serve any user; nodes replicate every
 record to each other (transitively, so A↔B↔C works even if A↔C is blocked). The app races
 all known nodes/transports and uses the fastest working one. Transports are WebSocket over
-TLS for the apps and, between nodes, VLESS+REALITY on :443 (embedded Xray-core) so a domestic node inside a
-censored network reaches the foreign ones.
+TLS for the apps and, between nodes, pinned WSS or VLESS+REALITY on :443 (embedded Xray-core). A domestic node in
+Russia is dialed by the foreign nodes, since links it starts to foreign hosting freeze (D132).
 Registration is invite-only, no phone number. Recovery is by 24-word phrase (identity) and
 password (encrypted history backup replicated across nodes). Push is battery-friendly
 FCM wake-ups with a constant, content-free payload and an automatic 15-minute fallback when Google services are
