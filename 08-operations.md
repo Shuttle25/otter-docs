@@ -65,7 +65,8 @@ upgrades, backups, health checks) and `otter-server/deploy/README.md` (one-scree
 * Roll nodes one at a time; mixed versions must interoperate for ≥1 minor version.
 * `min_app_version` in manifest forces app update only for breaking changes.
 * App updates are distributed as APK. Since M6.5 the nodes serve it: `deploy/release-apk.sh VERSION APK` imports a
-  release-signed APK into every node and offers an announcement with an «Обновить» button; phones download it over
+  release-signed APK into every node (since 0.8.3 streamed over ssh and imported as `otter`, never as root;
+  all nodes must run 0.8.3+, D82) and offers an announcement with an «Обновить» button; phones download it over
   their pinned connection and check its SHA-256 (D68, D69). `upgrade-all.sh` offers the same news dialog
   (`--no-news` skips). Google Play optional.
 

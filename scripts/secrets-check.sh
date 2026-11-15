@@ -8,15 +8,18 @@ fail=0
 echo "==> gitleaks: full history"
 "$GITLEAKS" git --no-banner --redact --config .gitleaks.toml . || fail=1
 echo "==> tracked files: private addresses, home paths, e-mail addresses"
-# private IPv4 ranges (RFC 1918) except documentation placeholders like 192.168.x.y
-if git grep -nIE '\b(10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3})\b' \
-     -- ':!*.lock' | grep -vE '10\.0\.2\.2|10\.0\.2\.15'; then
-  echo "private IP address in a tracked file (use 192.168.x.y / 203.0.113.x placeholders)"; fail=1
+# private IPv4 ranges (RFC 1918); each match is judged alone, so an emulator address cannot hide a real one.
+# Findings print file:line only, never the matched text.
+priv=$(git grep -noIE '\b(10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3})\b' \
+     -- ':!*.lock' ':!**/testdata/**' ':!**/vectors/**' ':!scripts/secrets-check_test.sh' | grep -vE ':(10\.0\.2\.2|10\.0\.2\.15)$' | cut -d: -f1,2 | sort -u || true)
+if [[ -n "$priv" ]]; then
+  echo "$priv"; echo "private IP address in a tracked file (use 192.168.x.y / 203.0.113.x placeholders)"; fail=1
 fi
-if git grep -nIE '/home/[A-Za-z0-9_.-]+/' -- ':!scripts/secrets-check.sh'; then echo "home path in a tracked file"; fail=1; fi
-if git grep -nIE '[A-Za-z0-9._%+-]+@(gmail|yandex|mail|outlook|hotmail|icloud)\.[a-z]+' -- ':!scripts/secrets-check.sh'; then
-  echo "personal e-mail address in a tracked file"; fail=1
-fi
+homes=$(git grep -nIE '/hom[e]/[A-Za-z0-9_.-]+/' -- ':!scripts/secrets-check.sh' ':!scripts/secrets-check_test.sh' | cut -d: -f1,2 || true)
+if [[ -n "$homes" ]]; then echo "$homes"; echo "home path in a tracked file"; fail=1; fi
+mails=$(git grep -nIE '[A-Za-z0-9._%+-]+@(gmail|yandex|mail|outlook|hotmail|icloud)\.[a-z]+' \
+     -- ':!scripts/secrets-check.sh' ':!scripts/secrets-check_test.sh' | cut -d: -f1,2 || true)
+if [[ -n "$mails" ]]; then echo "$mails"; echo "personal e-mail address in a tracked file"; fail=1; fi
 echo "==> full history: real server IPs from ${OTTER_REAL_IPS:-$HOME/.otter-real-ips}"
 IPS=${OTTER_REAL_IPS:-$HOME/.otter-real-ips}
 if [[ -f "$IPS" ]]; then
@@ -25,7 +28,7 @@ if [[ -f "$IPS" ]]; then
     echo "a real server IP is in the git history (rewrite it out before pushing)"; fail=1
   fi
 else
-  echo "warning: $IPS missing, real-IP check skipped (one IP per line)"
+  echo "missing $IPS: create it with one real server IP per line (it never goes into git)" >&2; exit 2
 fi
 echo "==> full history: commit metadata (UTC, no time of day, no session trailers)"
 if git log --all --format='%ad%n%cd' --date=raw | awk '{print $2}' | grep -v '^+0000$' >/dev/null; then
@@ -69,7 +72,7 @@ if [[ -f "$WORDS" ]]; then
     echo "a private word (provider, device, account, place) is in the git history or a commit message"; fail=1
   fi
 else
-  echo "warning: $WORDS missing, private-word check skipped (one extended regex per line)"
+  echo "missing $WORDS: create it with one extended regex per line (it never goes into git)" >&2; exit 2
 fi
 (( fail == 0 )) || { echo "secrets check: FAILED" >&2; exit 1; }
 echo "secrets check: ok"
