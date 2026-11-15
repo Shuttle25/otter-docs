@@ -29,7 +29,9 @@ WebRTC's own congestion control adapts resolution and bitrate. We add:
   The cap is set with `RtpSender` encoding parameters plus the capture format.
 - a **pause watchdog**: while the camera is on, if the estimated available outgoing bitrate stays under 150 kbit/s for
   10 s, sending video pauses and the call stays audio. Both screens say «Видео приостановлено: слабая связь». Video
-  resumes after 15 s above 400 kbit/s. The camera hardware stays open while paused, and the UI keeps showing the
+  resumes through short **test bursts** (WebRTC cannot measure spare bandwidth while only audio flows): bursts at 15 s,
+  30 s, 60 s and then every 2 min after the pause; a burst stops after 5 s unless the link measures ≥ 400 kbit/s, and
+  15 s at ≥ 400 kbit/s resumes video. The other phone keeps the notice during a burst (plan D127). The camera hardware stays open while paused, and the UI keeps showing the
   local preview.
 
 Rejected: simulcast/SVC (made for group calls; wastes uplink in 1:1), our own quality-by-network-type logic.
@@ -41,11 +43,13 @@ Rejected: simulcast/SVC (made for group calls; wastes uplink in 1:1), our own qu
   RTP is sent until a track is attached with `RtpSender.setTrack`. **No renegotiation** when the camera turns on/off or
   switches.
 - New `CallMessage.media = 6` → `CallMedia { bool camera_on = 1; bool paused = 2; }`, sent end-to-end like the other call
-  messages (same expiry rules as M8 call signaling) whenever the local camera state changes. The receiver shows or hides
+  messages (same expiry rules as M8 call signaling) but **not urgent**: no push, so camera toggles never use up the
+  call-wake budget of M9 Task 46 whenever the local camera state changes. The receiver shows or hides
   the remote video view. Frames that arrive without a `camera_on` are still shown, because the message may be late.
 - **Compatibility:** an offer from an older app (audio only) gets an audio-only answer; the camera button is disabled
-  with «У собеседника старая версия». An older app answering a video-capable offer leaves the video section
-  inactive; the new app sees that and disables the camera button the same way.
+  with «У собеседника старая версия». An older app answering a video-capable offer answers the video section
+  `recvonly`; "the peer can do video" means the negotiated direction is `sendrecv`, and the answering side does not
+  create its video transceiver in advance. The new app sees a non-`sendrecv` direction and disables the camera button the same way.
 - Codecs: WebRTC defaults with `DefaultVideoEncoderFactory`/`DefaultVideoDecoderFactory` and hardware acceleration enabled
   (`EglBase` shared context). Hardware H.264/VP8 when the phone has it, software VP8 otherwise.
 
@@ -59,7 +63,7 @@ Rejected: simulcast/SVC (made for group calls; wastes uplink in 1:1), our own qu
   - `MediaListener.onRemoteVideo(active: Boolean)`
 
   `WebRtcEngine` implements them with `Camera2Enumerator`, `CameraVideoCapturer`, `SurfaceTextureHelper`, a `VideoSource`
-  and track, and `SurfaceViewRenderer`/`TextureView` sinks owned by the UI layer through a small `VideoSinks` holder.
+  and track, and `SurfaceViewRenderer` sinks (this WebRTC build has no `TextureViewRenderer`) owned by the UI layer through a small `VideoSinks` holder.
 - `CallStateMachine`/`CallManager`:
   - local `cameraOn`, `paused`, `saver` state and remote `cameraOn`;
   - the watchdog (pure Kotlin, driven by `stats()` once a second through the existing timer seam);
@@ -81,8 +85,7 @@ Rejected: simulcast/SVC (made for group calls; wastes uplink in 1:1), our own qu
 - **Screen off or app in background without PiP:** the camera stops sending (`paused`) and resumes when the call screen
   is visible again.
 - The lock screen and incoming-call notification never show video.
-- Settings: «Экономить трафик в видеозвонках» (default off) in the existing «Звонки» section next to «Звонки только
-  через сервер».
+- Settings: «Экономить трафик в видеозвонках» (default off) directly under «Звонки только через сервер» in «Подключение».
 
 ## Server (same binary on every node; only a setting changes)
 
@@ -103,7 +106,7 @@ Rejected: simulcast/SVC (made for group calls; wastes uplink in 1:1), our own qu
   - watchdog: pause after 10 s under 150 kbit/s, resume after 15 s over 400 kbit/s, no flapping;
   - the saver cap is applied;
   - old-peer fallback disables the camera button.
-- **Fake engine** (`FakeMediaEngine` from M8) extended with the new calls.
+- **Fake engine** (`FakeEngine` from M8; video calls recorded in a separate list so M8's exact-call assertions stay valid) extended with the new calls.
 - **Instrumented smoke test** on the emulator:
   - `WebRtcEngine` opens two peer connections in one process over loopback, turns a camera on (emulator camera or
     `FileVideoCapturer` fallback), and the other side receives frames;
