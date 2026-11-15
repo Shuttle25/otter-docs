@@ -68,8 +68,8 @@ message RecordBody {
 | `ANNOUNCEMENT` (type 15) | news key (`ID16(news pub)`) | `Announcement{text_ru, text_en, update?: AppUpdate{version_name, version_code, sha256, size}}`; texts ≤ 4000 runes, one non-blank | Valid only while the key is in the current manifest's `news_keys`; kept forever; not E2E encrypted (M6.5, D64–D66) |
 | `ANNOUNCEMENT_DELETED` (type 16) | news key | `AnnouncementDeleted{target}` (record key of the announcement) | Kept forever; wins over an announcement that arrives later (D66) |
 | `MANIFEST` | network | see [05](05-transport.md) | Highest version wins |
-| `REVOCATION` | network | user_id, reason | Node refuses that user afterwards |
-| `INVITE_RIGHTS` | network | user_id, can_invite, version | Overrides `can_invite` from directory entry |
+| `REVOCATION` | network | user_id, reason | Applied on accept and replication: no login/submit/invite/blob/TURN, sessions closed, mailbox/prekeys/push dropped; permanent, earliest `created_ms` kept (D99) |
+| `INVITE_RIGHTS` | network | user_id, can_invite, version | Highest version wins, ties → false; overrides the default rights (every non-revoked member may invite, D101) |
 
 **Record key** (dedup/storage key everywhere, incl. "record_id" in [03](03-mesh-replication.md)
 and [06](06-node-architecture.md)) = `author (16 bytes) || id (16 bytes)`. Scoping ids by author
@@ -202,10 +202,12 @@ message SenderKeyDistribution { bytes group_id = 1; bytes distribution_id = 2; b
   every recipient delivered, READ when every recipient read; per-recipient detail in "Сведения о сообщении". READ
   receipts are sent per author (one receipt message per sender).
 
-### Invite rights (D19)
-`DIRECTORY_ENTRY` has `can_invite` (default true). A network-signed `INVITE_RIGHTS{user_id,
-can_invite}` record overrides it; nodes reject `INVITE` records from users without the right.
-Group admin roles have no effect on network invites.
+### Invite rights (D19, revised by D101 in M9.2)
+`DIRECTORY_ENTRY.can_invite` is ignored from M9.2 on (it is self-signed). By default every non-revoked member may
+invite. A network-signed `INVITE_RIGHTS{user_id, can_invite, version}` record withdraws or restores one member's right
+(highest version wins, equal versions → "no"); nodes reject `INVITE` records from users without the right.
+Rights and revocation are judged as of the invite's signed `created_ms` (backdating by an inviter is bounded by the
+30-day invite lifetime; the admin revokes such accounts by hand). Group admin roles have no effect on network invites.
 
 ## 4. Client ↔ node API
 
@@ -237,7 +239,7 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 | `register` | invite secret + DIRECTORY_ENTRY + PREKEYS → creates account |
 | `auth.login` | see above |
 | `manifest.get` | latest signed manifest |
-| `directory.sync{since}` | changed directory entries / revocations |
+| `directory.sync{since}` | current entries of all users (revoked included) + every `REVOCATION` and `INVITE_RIGHTS` (M9.2, D99), so phones verify them with the network key |
 | `directory.update{record}` | newer version of the caller's own DIRECTORY_ENTRY (profile edit, D39): OK; UNAUTHORIZED (someone else's entry); INVALID (changed username, not a directory entry); CONFLICT (version not newer); RETRY_LATER (user not replicated here yet). Every session gets a `directory` event |
 | `prekeys.upload` / `prekeys.fetch{user,device}` | Signal prekey bundles |
 | `msg.send{Record}` | submit ENVELOPE; response = stored (✓ "sent") |
@@ -309,6 +311,34 @@ Inviter app                          Any node                     New user app
   client is told `conflict` on next login and must pick a new username.
 * First user of a network: `otter-admin bootstrap-invite` creates an invite signed by the
   network key.
+
+#### Invite chain (M9.2, D100–D103)
+* **Redeem key.** From the link secret `s` (32 bytes) both sides derive a one-time Ed25519 key:
+  seed = `HKDF-SHA256(s, salt=∅, info="otter/invite-redeem/v1", 32)` (Go `keys.InviteRedeemKey`, Kotlin
+  `InviteKeys.redeemKey`; pinned by `invite_redeem_pub_hex` / `invite_proof_hex` in the shared vectors).
+* **`Invite.redeem_pub`** (field 3) is that key's public half; `invite_id` stays `SHA-256(s)`.
+* **`InviteBundle.invite`** (field 8): the link carries the inviter's full signed `INVITE` record. Links without it
+  (made before M9.2) no longer work.
+* **`DirectoryEntry.invite_record`** (field 10): that `INVITE` record (serialized), and
+  **`DirectoryEntry.invite_proof`** (field 11): Ed25519 by the redeem key over
+  `"otter-invite-redeem-v1" ‖ invite_id(32) ‖ user_id(16) ‖ account_pub(32)`. Both are copied into later versions of
+  the entry (like `registered_ms`). The raw secret never leaves the inviter's and the invitee's phones.
+* Every node and phone checks the chain of every account it does not know yet (registration and replication): the
+  `INVITE` is signed by the network key or by a known member, the proof verifies with `redeem_pub`,
+  `invite.created_ms ≤ registered_ms ≤ invite.expires_ms`, and the inviter was not revoked and had the right as of the
+  invite's `created_ms`. No chain → `INVALID`; inviter not known yet → `RETRY_LATER`.
+* **`Manifest.founding_members`** (field 8): user_ids admitted by the admin without an invite chain (the accounts that
+  existed before M9.2). They need no `invite_record`.
+* One `invite_id` redeemed by several accounts: the lowest `SHA-256(invite_proof)` (then `user_id`) stays, the others
+  are disabled everywhere like a revoked account (reason `duplicate invite`, D102).
+* Username clash rank = the `INVITE` record's `created_ms` (founding members: `registered_ms`), fixed at admission
+  (D103). **`BackupAuthResponse.candidates`** (field 10): for a username that ever clashed, `backup.auth` answers the
+  `name#<8 hex>` forms of every account sharing it and no salt; the phone retries with each.
+* **`network.publish{Record}`** (`RecordRequest` → `Empty`, public): accepts network-signed `REVOCATION` and
+  `INVITE_RIGHTS` (used by `otter-admin user revoke / invite-rights`).
+* **`admin.users{AdminRequest}`** (→ `RecordBatch`, public): `AdminRequest{ts_ms, signature}`, Ed25519 by the network
+  key over the admin auth message (node_id, hello nonce, ts_ms); answers the node's verified member list
+  (`otter-admin user list`).
 
 ### Backup and restore (M6; D50–D56)
 1. Backup: the phone gzips a `BackupSnapshot` (client-only, `backup.proto`), encrypts it with Tink streaming AEAD
