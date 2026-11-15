@@ -41,10 +41,40 @@ otter-admin announce --ru ru.txt --en en.txt [--apk F --version-name V --version
 otter-admin announce --list | --delete ID_PREFIX # news to every node (D66, D67)
 otter-admin manifest sign                   # bump version, write manifest.bin
 otter-admin manifest publish --via <node>   # push new manifest into the mesh
-otter-admin invite bootstrap                # first user's invite (QR in terminal + link)
-otter-admin user revoke <username>
+otter-admin invite bootstrap                # first user's invite (QR in terminal + link; the link carries
+                                            # the signed INVITE, M9.2 — importing it on a node is optional)
+otter-admin user list | revoke | invite-rights | found   # M9.2 members, see "Members" below
 otter-admin status --via <node>             # peers, lag, storage, users
 ```
+
+## Members (M9.2, D99–D101)
+
+Membership is decided by records only the network key can sign; every node and phone checks them itself.
+The commands read the passphrase, ask one node for its member list over a request signed with the network key
+(`admin.users`), and verify every record on the admin machine: a node can hide accounts or records, it cannot
+alter or forge them. Records the admin signs are kept in the admin dir (`revocations/`, `invite-rights/`).
+
+```
+otter-admin user list [--via LABEL] [--allow-plain]
+    # name#tag, user id, invite rights (and their version), founding, active/revoked; an account without a
+    # verifiable invite chain is marked "not admitted". Compare the list from two nodes (--via A, then --via B):
+    # a node that hides someone shows a shorter list.
+otter-admin user revoke NAME|NAME#TAG|USER_ID [--reason TEXT] [--yes] [--via LABEL]...
+    # permanent: the account is closed on every node, its mailbox, prekeys and push tokens are deleted.
+    # An ambiguous name is refused (use name#tag or the user id). Asks "[y/N]" unless --yes.
+    # Published to every node of the manifest (or --via); OK if one node took it, it replicates from there.
+otter-admin user invite-rights NAME|NAME#TAG|USER_ID --off|--on [--via LABEL]...
+    # every member may invite by default (D101); --off withdraws the right, --on restores it.
+    # The version is one above the highest known (the node's list or the copy in the admin dir).
+otter-admin user found USER_ID...
+    # accounts created before 0.9.3 have no invite chain: list them as founding members, then
+    otter-admin manifest sign && otter-admin manifest publish
+```
+
+Upgrading an existing network to 0.9.3: run `user list` (the current accounts show "not admitted"), `user found`
+with their user ids, `manifest sign`, `manifest publish`, then `user list` again — all show `founding=true`.
+Rights and revocation are judged at the invite's signed `created_ms`; an inviter can backdate an invite by up to
+its 30-day lifetime, so an account invited that way after a revocation must be revoked by hand.
 
 ## Deploying a node
 

@@ -69,34 +69,72 @@ each side streams its oplog after that cursor: PeerBatch{records, last_seq} (≤
 receiver: re-validates and applies each record, persists the cursor, answers PeerBatchAck
 ```
 
+The receiver applies batches in a separate loop (a queue of 4 slots, M9.2) so the reading loop keeps answering
+pings while a large catch-up batch is being applied (D130's 60 s pong timeout); a peer never has more than 4 batches
+unacknowledged, and an apply error still ends the session without advancing the cursor.
+
 * **Idempotent**: applying a record twice is a no-op (dedup by `author ‖ id`).
 * **Ordering independence**: an ACK may arrive before its envelope → the ACK is stored as a
   tombstone and the envelope is dropped on arrival.
 * **Back-pressure**: batches are acknowledged; at most 4 batches in flight.
 * **Retry later**: if a record's author is not known yet (its `DIRECTORY_ENTRY` has not arrived
-  from anywhere) or applying fails transiently, the session ends **without advancing the cursor**
-  and is redialed 30 s later, so nothing is skipped. Only invalid records (bad signature, malformed)
-  are logged and skipped.
+  from anywhere), a new account's inviter is not known yet (D100), or applying fails transiently, the session ends
+  **without advancing the cursor** and is redialed 30 s later, so nothing is skipped. Skipped (logged, cursor
+  advances): invalid records (bad signature, malformed, a new account without a valid invite chain), records of an
+  author revoked after writing them (D99), records past the 30-day retention guard, and keys in `compacted` (D107).
 
 ### Merge rules for replicated records
 
 Records from peers never fail on business conflicts (clients get errors only for their own submissions):
 
-* **Invite reuse** (the same invite used on two sides of a partition): both `INVITE_USED` records are
-  stored; the first `used_by` stays. Both accounts exist.
-* **Username clash**: the user whose directory entry has the lower `(registered_ms, user_id)` keeps the
-  name (`registered_ms` = first registration, copied into every later version; the record's `created_ms`
-  when 0 for M1–M3 entries, D40), so a profile update never changes the outcome; the other becomes `name#<first 4 bytes of user_id, hex>` on every node, independent of arrival
-  order. (A rename screen comes in M9.)
+* **Invite reuse** (the same invite redeemed on two sides of a partition, or by a hostile node; M9.2, D102): both
+  `INVITE_USED` records are stored; of all accounts that redeemed one `invite_id` the lowest `SHA-256(invite_proof)`
+  (then `user_id`) stays, and every other one — with every account invited through it, at any depth — is disabled on
+  every node like a revoked account (`users.revoke_reason` `duplicate invite` / `invited by a duplicate`; no
+  `REVOCATION` record). The result does not depend on arrival order.
+* **Username clash** (M9.2, D103): the account with the lower rank keeps the name; rank = the `INVITE` record's
+  `created_ms` (signed by the inviter), for founding members `registered_ms` (the record's `created_ms` when 0),
+  fixed when the account is admitted, so a later version never changes it. The other becomes
+  `name#<first 4 bytes of user_id, hex>` on every node, independent of arrival order, and the plain name is
+  remembered in `username_clashes` (restore then asks for a tag, D103). Before M9.2 the rank was the self-claimed
+  `registered_ms` (D40).
 * **One-time prekeys**: each key is owned by one node, which alone hands it out; when it does, it
   writes a node-signed `PREKEY_CONSUMED{user, device, key_ids}` record that replicates, so every node
   knows how many keys each owner has left. A user's app refills keys per owner (`prekeys_low{owner_node}`).
   A `PREKEY_CONSUMED` from a node that is not (yet) in the receiver's manifest is **skipped**, not retried: it only
   feeds refill counts, and stalling the peer session until the manifest arrives cost more than the count (M3).
 * **Manifest**: highest version wins; peers of nodes removed from the manifest are disconnected.
-* **Push token** (M5, D60): newest `created_ms` per (user, device) wins, ties by record key; an older token arriving
-  later is stored as a record but does not change the token. A token FCM reports as unregistered is deleted only on
-  the node that saw the error (not replicated).
+* **Push token** (M5, D60; M9.2, D107): newest `created_ms` per (user, device) wins, ties by record key. Only the
+  newest record per author is kept: an older one arriving later is deleted on arrival and does not change the token.
+  A token FCM reports as unregistered is deleted only on the node that saw the error (not replicated); the record
+  stays, so an older one still loses.
+* **Invites** (M9.2, D107): an author keeps at most 50 unexpired invites, ranked by `(created_ms, record key)`, so
+  every node keeps the same 50: a replicated one past the rank is dropped, an unused one pushed past the rank by an
+  earlier-ranked arrival is evicted (and compacted). An invite that expired more than a day ago is dropped on arrival.
+* **One-time prekeys budget** (M9.2, D107): at most 200 unconsumed keys per (user, device, owner node); a record
+  with more keeps the newest ids and marks the older ones consumed. Ids below the owner's `prekey_floor` are never
+  inserted again.
+* **Revocation / invite rights** (M9.2, D99): applied in the transaction that stores them, on every node; the
+  earliest revocation of a user is kept and is permanent; `INVITE_RIGHTS` highest version wins, ties → "no".
+
+### Membership checks on replication (M9.2, D99–D102)
+
+Membership is decided by signed records that every node checks itself (threat model: any one node may be hostile),
+the same way for a registration and for a replicated record:
+
+* A `DIRECTORY_ENTRY` of a user this node does not know yet must carry a valid invite chain (`invite_record`,
+  `invite_proof`, [02](02-protocol.md) "Invite chain"): the `INVITE` signed by the network key or a known member, the
+  proof valid, the invite living ≤ 30 days, `created_ms ≤ registered_ms ≤ expires_ms`, and the inviter neither revoked
+  nor without invite rights **as of the invite's `created_ms`**. Or the user is in the manifest's `founding_members`.
+  Broken chain → skipped (`INVALID`); inviter not known here yet → `RETRY_LATER` (it comes in a later batch or from
+  another peer). Unlike a registration, a replicated entry does not need the invite to be unexpired *now*.
+* An entry of a known user is a new version: the admission (rank, inviter, redemption) is never recomputed.
+* A redemption that loses the single-use rank (above) disables the loser and everyone it invited; such an account
+  never admits anyone.
+* `REVOCATION` / `INVITE_RIGHTS` must be signed by the network key; a `REVOCATION` closes the account's sessions and
+  deletes its mailbox, prekeys and push tokens on every node. Records of a revoked author that arrive later are
+  skipped (no stall).
+* TURN refuses a revoked account's credentials as soon as the node holds the revocation (D108).
 
 ## Blob replication
 
@@ -132,20 +170,40 @@ Blob bytes are large, so they replicate separately from `BLOB_META` (D45), over 
 | ACK tombstone | 30 d after creation (longer than any envelope can live) |
 | Old directory/backup/manifest versions | immediately superseded (a superseded backup's blob too; tombstone 30 d) |
 | Persistent blob without a `BACKUP_META` | 7 d after creation |
-| `auth_failures` rows (backup rate limit) | 24 h |
+| `auth_failures` rows (restore limit; `username`, `source`, `at_ms`, M9.2 D105) | 24 h. An attempt is written before the secret is compared; a correct secret or a node error removes its row at once |
 | `ACK`, `PREKEY_CONSUMED` records | 30 d after they were received |
+| Superseded `PUSH_TOKEN` records (M9.2, D107) | on arrival of a newer one (an older one arriving later is deleted at once); only the newest record per author stays |
+| `PREKEYS` records (M9.2, D107) | janitor, ≥ 1 h after creation: a record of a replaced install, or one whose one-time keys are all consumed and that is not the newest record with the current install's signed prekeys; its key goes to `compacted` |
+| Consumed one-time prekey rows (M9.2, D107) | janitor: below the per-(user, device, owner node) `prekey_floor` (= highest consumed id + 1); the floor itself is kept (dropped with the device's prekeys on a newer install) so those ids are never inserted again |
+| Unconsumed one-time prekeys over budget | on arrival: more than 200 per (user, device, owner node) → the oldest ids are marked consumed |
+| `INVITE` records (M9.2, D107) | 1 d after `expires_ms` (key to `compacted`); an unused one evicted past the 50-invite rank at once; records from before 0.9.3 (no `invites.record_key`) once `created_ms` is older than 31 d. An `INVITE` arriving > 1 d after its expiry is dropped |
+| `invites` rows | unused: with their record, 1 d after expiry; **used rows stay** (single-use check, D102) |
+| `compacted` keys (M9.2, D107) | 30 d after the record was compacted (matches the retention guard below) |
+| Revoked account's mailbox, prekeys, push tokens (D99) | when the `REVOCATION` is applied (or the account is disabled as a duplicate, D102) |
 | Oplog rows | removed together with their record (janitor every 10 min) |
 
 ## Compaction & new / long-offline nodes
 
-**No snapshot protocol** (simplified in M2). The oplog only loses rows of records that were deleted,
-and every deleted kind (envelopes, ACKs, `PREKEY_CONSUMED`) expires after the same 30 days. So
-`Since(cursor)` always yields exactly the live set, whatever the cursor: a brand-new node (cursor 0)
-or one that was offline for months simply subscribes and converges.
+**No snapshot protocol** (simplified in M2). `Since(cursor)` joins the oplog with the stored records, so a
+deleted record is simply not sent, and the janitor drops oplog rows without a record. A record is deleted only
+when (a) it expired (envelopes, ACKs, `PREKEY_CONSUMED`, `BLOB_FETCHED`: all after the same 30 days; expired
+invites) or (b) its effect is fully carried by records that stay (superseded directory/backup/manifest versions,
+older `PUSH_TOKEN`s, `PREKEYS` whose keys are all consumed or belong to a replaced install, evicted invites).
+So `Since(cursor)` always yields exactly the live set, whatever the cursor: a brand-new node (cursor 0) or one
+that was offline for months simply subscribes and converges to the same derived state as the others (proven in
+`meshsim`: a node away while the others compact catches up to the same prekeys, push tokens and invites).
 
-**Retention guard:** a peer may still re-send an envelope/ACK/`PREKEY_CONSUMED` that this node already
-expired and forgot. Such records are ignored if their `created_ms` is older than the 30-day retention
-(clients set `created_ms` from their clock, which logins keep within ±5 min).
+**M9.2 compaction (D107)** keeps this property: the newest `PUSH_TOKEN` and the base `PREKEYS` record of the
+current install (with the signed prekeys) are never compacted; a `PREKEYS` record is compacted only after 1 h (its
+keys may still be replicating) and only when none of its one-time keys is still live; the used `invites` rows stay.
+A node that has never seen a compacted record does not need it.
+
+**Retention guard and `compacted`:** a lagging or hostile peer may still re-send a record this node already
+deleted. Envelopes/ACKs/`PREKEY_CONSUMED` are ignored if their `created_ms` is older than the 30-day retention
+(clients set `created_ms` from their clock, which logins keep within ±5 min). Compacted records are ignored by key
+for 30 days (`compacted`); after that they still change nothing: an older `PUSH_TOKEN` loses to the newest one (and
+is deleted again), an old `PREKEYS` record of a replaced install is ignored by the install rule, consumed one-time
+ids are below `prekey_floor`, and an invite more than a day past expiry is dropped on arrival.
 
 ## Partition behaviour (examples)
 
@@ -160,14 +218,20 @@ expired and forgot. Such records are ignored if their `created_ms` is older than
 ## Clock skew
 
 Nodes do not trust clocks for correctness: expiry uses the node's own clock relative to
-`received_ms`; `created_ms` is used only for tie-breaks (username clash), the retention guard above,
-and display.
+`received_ms`; `created_ms` is used only for tie-breaks (username clash rank, invite and push-token ranks), the
+retention guard above, the invite-chain checks (judged at the inviter-signed `INVITE.created_ms`, so every node
+gets the same answer; an inviter can backdate by up to the 30-day invite lifetime, D100) and display. Clients cannot
+submit records dated more than 5 min ahead (M9.2), which would otherwise outrank every later record.
 
 ## Security of replication
 
 * Peers authenticate each other with node keys from the current manifest; a node removed
   from the manifest is disconnected and its new records are rejected.
-* Every record is re-validated (signature, author not revoked, quotas) before being applied —
-  a compromised peer cannot inject forgeries.
+* Every record is re-validated (signature, author not revoked, invite chain of a new account, budgets) before
+  being applied — a compromised peer cannot inject forgeries or members (M9.2: membership checks above).
+* Budgets hold on the replicated path too (D107): a hostile peer relaying a member's flood or replaying old
+  records cannot grow prekeys, push-token records or invites beyond them. Submit rates (`PREKEYS` 20/h,
+  `PUSH_TOKEN` 30/h per author) and the 5-minute future limit apply to local submits only; a hostile node can
+  skip them for records it receives, but the member must still sign each record and the budgets still cap them.
 * A compromised peer *can* withhold records; clients mitigate by using several nodes over time
   and by re-sending unacknowledged messages.

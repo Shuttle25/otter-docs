@@ -53,14 +53,14 @@ message RecordBody {
 
 | Type | Author | Payload | Notes |
 |------|--------|---------|-------|
-| `DIRECTORY_ENTRY` | user | user_id, username, display_name, account_pub, identity_pub, identity_sig, version, can_invite, registered_ms | Latest `version` wins; `registered_ms` = first registration, copied into later versions (D40) |
-| `PREKEYS` | user | signed prekey, Kyber last-resort prekey, list of one-time EC + Kyber prekeys **each tagged with an owning node_id**, `installed_ms` (M6, D52; 0 before) | See §5. A newer `installed_ms` raises the device's install on the node like a newer `INSTALL`; 0.9.0+ phones decide "replaced" only from `INSTALL` (D89) |
-| `INVITE` | user | invite_id = SHA-256(secret), expires | |
+| `DIRECTORY_ENTRY` | user | user_id, username, display_name, account_pub, identity_pub, identity_sig, version, can_invite (ignored since M9.2, D101), registered_ms, invite_record (10), invite_proof (11) | Latest `version` wins; `registered_ms`, `invite_record` and `invite_proof` = first registration, copied into later versions (D40, D100); a new account is admitted only with a valid invite chain or as a founding member, and its username rank is fixed then (D103) |
+| `PREKEYS` | user | signed prekey, Kyber last-resort prekey, list of one-time EC + Kyber prekeys **each tagged with an owning node_id**, `installed_ms` (M6, D52; 0 before) | See §5. A newer `installed_ms` raises the device's install on the node like a newer `INSTALL`; 0.9.0+ phones decide "replaced" only from `INSTALL` (D89). ≤ 200 unconsumed one-time keys per (user, device, owner node); superseded records compacted (M9.2, D107) |
+| `INVITE` | user (or network) | invite_id = SHA-256(secret), expires, `redeem_pub` (M9.2, D100) | Lifetime `created_ms` → `expires_ms` ≤ 30 days; ≤ 50 unexpired per author, ranked by (created_ms, record key) (a local 51st → `QUOTA`); deleted 1 day after expiry (M9.2, D107) |
 | `INVITE_USED` | user (new) | invite_id, new user_id | |
 | `ENVELOPE` | user | see §3 | Encrypted message |
 | `ACK` | user (recipient) | list of envelope ids | Deletes envelopes everywhere |
 | `PREKEY_CONSUMED` | node | user_id, key ids | Bookkeeping |
-| `PUSH_TOKEN` (type 8) | user | `PushToken{device_id (= 1), kind (FCM = 1), token (1–4096 bytes UTF-8), messages_off (4), withdrawn (5)}`. `messages_off`: notifications off on the phone, wake it for calls only. `withdrawn`: Google wake-ups off, `token` empty and `messages_off` false (server 0.9.0, D94) | Newest `created_ms` per (user, device) wins, ties by record key; never expires (M5, D60). A withdrawn record erases the token but keeps the row (`created_ms`, `record_key`), so an older token record replicated later loses (D94). A 0.8.x node refuses withdrawn records as invalid |
+| `PUSH_TOKEN` (type 8) | user | `PushToken{device_id (= 1), kind (FCM = 1), token (1–4096 bytes UTF-8), messages_off (4), withdrawn (5)}`. `messages_off`: notifications off on the phone, wake it for calls only. `withdrawn`: Google wake-ups off, `token` empty and `messages_off` false (server 0.9.0, D94) | Newest `created_ms` per (user, device) wins, ties by record key (M5, D60); only the newest record per author is kept, an older one is deleted on arrival (M9.2, D107). A withdrawn record erases the token but keeps the row (`created_ms`, `record_key`), so an older token record replicated later loses (D94). A 0.8.x node refuses withdrawn records as invalid |
 | `BLOB_META` | user | size, chunk_size (262144), chunk_sha256[] (one per chunk), readers[] (1–100 user ids, not the author); body `expires_ms` ≤ created + 31 d | The record key (author‖id) is the blob key (D44); chunks replicate separately |
 | `BLOB_FETCHED` | user (reader) | blob_key | After a verified download; all readers → the blob is deleted everywhere (D45) |
 | `BACKUP_META` (type 10) | user | `BackupMeta{version, salt (16 B), kdf_m_kib (19456–262144), kdf_t (1–10), kdf_p (1–4), auth_verifier (32 B) = SHA-256(auth_secret), blob_key (32 B, starts with the author id), size}` | Latest `version` wins (D50); accepted only when its blob is a persistent blob of the author already on the node; see [04](04-security.md). **`version 0` = decoy** (C20, D90): `size 0`, `blob_key = author ‖ 16 zero bytes`, no blob, profile-1 KDF numbers, random salt and verifier; loses to any real version and never replaces one; `backup.fetch` never opens it |
@@ -68,8 +68,8 @@ message RecordBody {
 | `ANNOUNCEMENT` (type 15) | news key (`ID16(news pub)`) | `Announcement{text_ru, text_en, update?: AppUpdate{version_name, version_code, sha256, size}}`; texts ≤ 4000 runes, one non-blank | Valid only while the key is in the current manifest's `news_keys`; kept forever; not E2E encrypted (M6.5, D64–D66) |
 | `ANNOUNCEMENT_DELETED` (type 16) | news key | `AnnouncementDeleted{target}` (record key of the announcement) | Kept forever; wins over an announcement that arrives later (D66) |
 | `MANIFEST` | network | see [05](05-transport.md) | Highest version wins |
-| `REVOCATION` | network | user_id, reason | Node refuses that user afterwards |
-| `INVITE_RIGHTS` | network | user_id, can_invite, version | Overrides `can_invite` from directory entry |
+| `REVOCATION` | network | user_id, reason | Applied on accept and replication: no login/submit/invite/blob/TURN, sessions closed, mailbox/prekeys/push dropped; permanent, earliest `created_ms` kept (D99) |
+| `INVITE_RIGHTS` | network | user_id, can_invite, version | Highest version wins, ties → false; overrides the default rights (every non-revoked member may invite, D101) |
 
 **Record key** (dedup/storage key everywhere, incl. "record_id" in [03](03-mesh-replication.md)
 and [06](06-node-architecture.md)) = `author (16 bytes) || id (16 bytes)`. Scoping ids by author
@@ -84,7 +84,7 @@ Nodes reject any record whose signature or author binding doesn't verify, whose
 * `ACK.envelope_ids` are **record keys** (`author‖id`, 32 bytes) of ENVELOPE records; `ACK.device_id`
   names the acknowledging device. An ACK only removes the author's own mailbox entries.
 * `INVITE` may be authored by the **network key** (bootstrap invite for the first member) or by a
-  member with `can_invite`.
+  member with invite rights (every member by default, D101).
 * Endpoint kind `WS_PLAIN` = unencrypted WebSocket for local development only; release builds refuse it.
 * Login signature: Ed25519(account key, `"otter-auth-v1" ‖ node_id(16) ‖ nonce(32) ‖ ts_ms(8, big-endian)`),
   `|now − ts| ≤ 5 min`.
@@ -202,10 +202,12 @@ message SenderKeyDistribution { bytes group_id = 1; bytes distribution_id = 2; b
   every recipient delivered, READ when every recipient read; per-recipient detail in "Сведения о сообщении". READ
   receipts are sent per author (one receipt message per sender).
 
-### Invite rights (D19)
-`DIRECTORY_ENTRY` has `can_invite` (default true). A network-signed `INVITE_RIGHTS{user_id,
-can_invite}` record overrides it; nodes reject `INVITE` records from users without the right.
-Group admin roles have no effect on network invites.
+### Invite rights (D19, revised by D101 in M9.2)
+`DIRECTORY_ENTRY.can_invite` is ignored from M9.2 on (it is self-signed). By default every non-revoked member may
+invite. A network-signed `INVITE_RIGHTS{user_id, can_invite, version}` record withdraws or restores one member's right
+(highest version wins, equal versions → "no"); nodes reject `INVITE` records from users without the right.
+Rights and revocation are judged as of the invite's signed `created_ms` (backdating by an inviter is bounded by the
+30-day invite lifetime; the admin revokes such accounts by hand). Group admin roles have no effect on network invites.
 
 ## 4. Client ↔ node API
 
@@ -224,7 +226,8 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 ### Authentication
 1. On connect node sends `Event{hello}`: node_id, nonce, manifest version.
 2. Client: `auth.login{user_id, device_id, ts, sig(account_key, "otter-auth|"+node_id+nonce+ts)}`.
-3. Unauthenticated methods allowed: `register`, `manifest.get`, `backup.auth`, `backup.fetch`.
+3. Unauthenticated methods allowed: `register`, `manifest.get`, `backup.auth`, `backup.fetch` (and the admin's
+   `manifest.publish`, `news.publish`, `network.publish`, `admin.users`, each checked by its own signature).
    `auth.login` answers `LoginResponse{registration_id, installed_ms, install}` (M6, D52; an older node sends an empty
    body = zeros). `install` (field 3, server 0.9.0+) is the newest account-signed `INSTALL` record the node holds for the
    account. 0.9.0+ phones use only the signed `install` (checked with their own account key); the unsigned
@@ -234,27 +237,27 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 
 | Method | Purpose |
 |--------|---------|
-| `register` | invite secret + DIRECTORY_ENTRY + PREKEYS → creates account |
+| `register` | DIRECTORY_ENTRY (with `invite_record` + `invite_proof`, M9.2; `invite_secret`, field 1, stays empty: the secret never leaves the phone) + INVITE_USED + PREKEYS → creates account; broken chain → `INVALID`, invite already redeemed here or expired → `CONFLICT`, inviter not replicated here yet → `RETRY_LATER` (D100, D102) |
 | `auth.login` | see above |
 | `manifest.get` | latest signed manifest |
-| `directory.sync{since}` | changed directory entries / revocations |
+| `directory.sync{since}` | current entries of all users (revoked included) + every `REVOCATION` and `INVITE_RIGHTS` (M9.2, D99), so phones verify them with the network key |
 | `directory.update{record}` | newer version of the caller's own DIRECTORY_ENTRY (profile edit, D39): OK; UNAUTHORIZED (someone else's entry); INVALID (changed username, not a directory entry); CONFLICT (version not newer); RETRY_LATER (user not replicated here yet). Every session gets a `directory` event |
-| `prekeys.upload` / `prekeys.fetch{user,device}` | Signal prekey bundles |
+| `prekeys.upload` / `prekeys.fetch{user,device}` | Signal prekey bundles (`prekeys.upload` ≤ 20 per author per hour → `QUOTA`, M9.2 D107) |
 | `msg.send{Record}` | submit ENVELOPE; response = stored (✓ "sent") |
 | `msg.ack{ids}` | submit ACK record; refused (`UNAUTHORIZED`) from a replaced install (D56) |
-| `invite.create{Record}` | publish INVITE |
+| `invite.create{Record}` | publish INVITE; needs a 32-byte `redeem_pub` (`INVALID` otherwise), invite rights (`UNAUTHORIZED` when the admin withdrew them, D101), lifetime ≤ 30 days and ≤ 50 unexpired invites (`QUOTA`, D107) |
 | `blob.create{record}` | author's signed `BLOB_META` (`persistent` = backup blob: no readers, `expires_ms` 0, at most 3 live per user, D50) → `BlobStatus{chunks, missing[]}`; idempotent; `QUOTA` over `max_blob`/`user_quota`; `NOT_FOUND` if it was deleted already |
 | `blob.put{blob_key, index, data}` | author only; each chunk verified against its hash (`INVALID` otherwise); re-put is OK |
 | `blob.get{blob_key, index}` → `BlobChunk{data}` | author or reader (`UNAUTHORIZED`); not yet replicated → `RETRY_LATER`; deleted → `NOT_FOUND`; a chunk missing here is fetched from a peer at once |
 | `blob.ack{record}` | reader's `BLOB_FETCHED` |
 | `backup.auth{username}` | **public.** → `BackupAuthResponse{salt, kdf_m_kib, kdf_t, kdf_p}`. Members without a backup have a decoy `BACKUP_META` (C20, D90), answered like a backup. Unknown usernames get the node-local fake salt `HMAC-SHA256(SHA-256("otter/fake-salt/v1" ‖ node private key), username)[:16]` with 65536/3/1 (D51; differs per node: reveals only non-membership). The phone treats the KDF numbers as a profile ID only (D86) |
-| `backup.fetch{username, auth_secret}` | **public.** → `BackupFetchResponse{backup_meta, blob_meta}` and a grant on this connection to `blob.get` that one blob (as its owner). Wrong secret, no backup or a decoy → `UNAUTHORIZED` (a decoy counts as a failure); 5 failures per username per hour and 20 per day per node → `RETRY_LATER` "too many attempts" |
+| `backup.fetch{username, auth_secret}` | **public.** → `BackupFetchResponse{backup_meta, blob_meta}` and a grant on this connection to `blob.get` that one blob (as its owner). Wrong secret, no backup or a decoy → `UNAUTHORIZED` (a decoy counts as a failure). Limits per node (M9.2, D105): 5 failures per (username, source) per hour; per username 10 and per source 30 failures per 24 h free, then a wait of 30 s doubling to 15 min after the last failure → `RETRY_LATER` "too many attempts, retry in Ns". A plain name shared after a clash → `CONFLICT` (use `name#tag`, D103) |
 | `backup.publish{Record BACKUP_META}` | logged in; `INVALID` unless the blob is a persistent blob of the author already on this node (a decoy, `version 0`, has no blob, D90; a pre-0.9.0 node answers `INVALID` and the phone retries next session) |
 | `install.publish{Record INSTALL}` | logged in (server 0.9.0, D89): the caller's account-signed `INSTALL` → `Empty`; the session that publishes a newer install is that install (D56). A pre-0.9.0 node answers INVALID "unknown method"; the phone retries after the next login |
-| `push.register{Record PUSH_TOKEN}` | `RecordRequest` with the signed `PUSH_TOKEN` (M5, D60); the app sends it after login only when its push state changed (token, `messages_off`, `withdrawn`), and at once when a switch in «Уведомления» changes while online (D94). A pre-M5 node answers INVALID "unknown method" (harmless) |
+| `push.register{Record PUSH_TOKEN}` | `RecordRequest` with the signed `PUSH_TOKEN` (M5, D60; ≤ 30 per author per hour → `QUOTA`, D107); the app sends it after login only when its push state changed (token, `messages_off`, `withdrawn`), and at once when a switch in «Уведомления» changes while online (D94). A pre-M5 node answers INVALID "unknown method" (harmless) |
 | `news.publish{Record}` | **public**, like `manifest.publish`: an ANNOUNCEMENT or ANNOUNCEMENT_DELETED signed by a current news key; idempotent; `otter-admin announce` sends it to every node (D67) |
 | `news.list` → `RecordBatch` | logged in: every stored ANNOUNCEMENT and ANNOUNCEMENT_DELETED, oldest first (D67) |
-| `turn.credentials{}` → `TurnCredentials` | logged in (M8, D77): TURN-REST username/password for **this** node's relay, `ttl_s` 43200, `urls` (`turn:IP:3478?transport=udp`, `…?transport=tcp`, `turns:IP:5349?transport=tcp` only when the node's WSS has TLS); asked on every call (D79); TURN off → UNAVAILABLE (9); pre-M8 nodes → INVALID |
+| `turn.credentials{}` → `TurnCredentials` | logged in (M8, D77): TURN-REST username/password for **this** node's relay, `ttl_s` 43200, `urls` (`turn:IP:3478?transport=udp`, `…?transport=tcp`, `turns:IP:5349?transport=tcp` only when the node's WSS has TLS); asked on every call (D79); TURN off → UNAVAILABLE (9); pre-M8 nodes → INVALID; a revoked account gets none, and TURN refuses its earlier credentials (M9.2, D108) |
 | `push.status{user_id}` → `PushStatus{has_push}` | logged in (M8): true if this node holds a non-empty push token for (user, device 1); false for a withdrawn device (D94; `messages_off` still counts as push: calls ring); the caller warns that a phone without push may not ring |
 | `apk.get{sha256, index}` → `ApkChunk{data, total_size}` | logged in: 1 MiB chunk of an APK imported with `otter-node apk import`; unknown hash / index past the end → NOT_FOUND (D68) |
 | `ping` | keep-alive / RTT measurement |
@@ -296,8 +299,9 @@ Inviter app                          Any node                     New user app
                                                                  choose username, display name
                                                                  generate seed → 24 words (shown, confirmed)
                                                                  choose backup password
-                                     ◄──── register{s, DIRECTORY_ENTRY, PREKEYS} (race nodes from manifest)
-                                     check H(s) unused & unexpired, username free
+                                     ◄──── register{DIRECTORY_ENTRY + invite_record + invite_proof,
+                                                    INVITE_USED, PREKEYS} (race nodes from manifest; s stays on the phone)
+                                     check invite chain (M9.2), invite unused & unexpired, username free
                                      store, INVITE_USED, replicate ────►
                                      OK ─────────────────────────────►
                                                                  inviter marked "verified" (keys came via QR)
@@ -305,10 +309,38 @@ Inviter app                          Any node                     New user app
 ```
 * Invite expiry: 7 days, single use.
 * Username collision across a partition (two nodes accept the same name concurrently):
-  deterministic resolution — earliest `created_ms`, then lowest user_id keeps it; the other
-  client is told `conflict` on next login and must pick a new username.
+  deterministic resolution — the lower rank (the invite's signed `created_ms`, D103), then lowest user_id keeps it; the
+  other becomes `name#<8 hex>` on every node ([03](03-mesh-replication.md) "Merge rules").
 * First user of a network: `otter-admin bootstrap-invite` creates an invite signed by the
   network key.
+
+#### Invite chain (M9.2, D100–D103)
+* **Redeem key.** From the link secret `s` (32 bytes) both sides derive a one-time Ed25519 key:
+  seed = `HKDF-SHA256(s, salt=∅, info="otter/invite-redeem/v1", 32)` (Go `keys.InviteRedeemKey`, Kotlin
+  `InviteKeys.redeemKey`; pinned by `invite_redeem_pub_hex` / `invite_proof_hex` in the shared vectors).
+* **`Invite.redeem_pub`** (field 3) is that key's public half; `invite_id` stays `SHA-256(s)`.
+* **`InviteBundle.invite`** (field 8): the link carries the inviter's full signed `INVITE` record. Links without it
+  (made before M9.2) no longer work.
+* **`DirectoryEntry.invite_record`** (field 10): that `INVITE` record (serialized), and
+  **`DirectoryEntry.invite_proof`** (field 11): Ed25519 by the redeem key over
+  `"otter-invite-redeem-v1" ‖ invite_id(32) ‖ user_id(16) ‖ account_pub(32)`. Both are copied into later versions of
+  the entry (like `registered_ms`). The raw secret never leaves the inviter's and the invitee's phones.
+* Every node and phone checks the chain of every account it does not know yet (registration and replication): the
+  `INVITE` is signed by the network key or by a known member, the proof verifies with `redeem_pub`,
+  `invite.created_ms ≤ registered_ms ≤ invite.expires_ms`, and the inviter was not revoked and had the right as of the
+  invite's `created_ms`. No chain → `INVALID`; inviter not known yet → `RETRY_LATER`.
+* **`Manifest.founding_members`** (field 8): user_ids admitted by the admin without an invite chain (the accounts that
+  existed before M9.2). They need no `invite_record`.
+* One `invite_id` redeemed by several accounts: the lowest `SHA-256(invite_proof)` (then `user_id`) stays, the others
+  are disabled everywhere like a revoked account (reason `duplicate invite`, D102).
+* Username clash rank = the `INVITE` record's `created_ms` (founding members: `registered_ms`), fixed at admission
+  (D103). **`BackupAuthResponse.candidates`** (field 10): for a username that ever clashed, `backup.auth` answers the
+  `name#<8 hex>` forms of every account sharing it and no salt; the phone retries with each.
+* **`network.publish{Record}`** (`RecordRequest` → `Empty`, public): accepts network-signed `REVOCATION` and
+  `INVITE_RIGHTS` (used by `otter-admin user revoke / invite-rights`).
+* **`admin.users{AdminRequest}`** (→ `RecordBatch`, public): `AdminRequest{ts_ms, signature}`, Ed25519 by the network
+  key over the admin auth message (node_id, hello nonce, ts_ms); answers the node's verified member list
+  (`otter-admin user list`).
 
 ### Backup and restore (M6; D50–D56)
 1. Backup: the phone gzips a `BackupSnapshot` (client-only, `backup.proto`), encrypts it with Tink streaming AEAD
