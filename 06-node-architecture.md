@@ -182,7 +182,10 @@ Call signaling envelopes carry a 2-minute record expiry (D78): `Store.Mailbox` s
 | Max envelope size | 256 KiB |
 | Max blob (`[limits] max_blob`) | 100 MiB (protocol maximum) |
 | Per-author live blobs (`[limits] user_quota`) | 2 GiB (persistent backup blobs count; at most 3 live per user, D50) |
-| Backup guesses (`backup.fetch`) | 5 failures per username per hour, 20 per day per node (D51) |
+| Backup guesses (`backup.fetch`) | 5 failures per (username, source) per hour; per username 10, per source 30 failures per 24 h free, then 30 s doubling to 15 min after the last failure (D105, M9.2) |
+| Record budgets (M9.2, D107; also on replicated records) | one-time prekeys ≤ 200 unconsumed per (user, device, owner node); newest `PUSH_TOKEN` record only; `INVITE` lifetime ≤ 30 days, ≤ 50 unexpired per author |
+| Submit rates (local only, M9.2) | `PREKEYS` 20, `PUSH_TOKEN` 30 per author per hour; `created_ms` ≤ 5 min ahead |
+| Call pushes (M9.2, D108) | 8 per (sender, recipient device) per minute, then ordinary wake-ups |
 | Blob chunk pull between nodes (`[replication] blob_bandwidth`) | 2 MB/s (`0` = unlimited) |
 | Mailbox max undelivered | 10 000 envelopes |
 | Requests | 50/s burst, 10/s sustained per session |

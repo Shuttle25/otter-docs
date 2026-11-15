@@ -7,12 +7,15 @@
 | Network observer / ISP / DPI | See that you connect to some IPs over TLS-looking traffic; block IPs; throttle | Read content; easily classify traffic as a messenger (see [05](05-transport.md)) |
 | Hosting provider / seized node | Read node DB: metadata (who↔whom, when, sizes, usernames, display names), encrypted blobs, encrypted backups; drop messages | Read messages, media or history; forge messages; impersonate users |
 | Google (FCM, only on push-capable nodes and phones with a Firebase build) | Which Firebase project wakes which phone (token), when, and the push-capable node's IP | Read content, sender, chat or message ids: the push is a constant `{"w":"1"}` (M5, D59) |
-| Malicious node operator (one of 3) | Same as above, plus withhold records, try offline password guessing on backups | Break E2E; inject forged records into honest nodes |
-| Another network member | What any contact can see | Read others' 1:1 chats or groups they're not in |
+| Malicious node operator (one of 3) | Same as above, plus withhold records, hide directory entries, try offline password guessing on backups, refuse restores on its own node | Break E2E; inject forged records into honest nodes; create members, undo a revocation or restore invite rights (M9.2: every node and phone checks membership itself); lock a name's restore on other nodes (D105: a stranger can only slow one name down per node); flood other nodes past the record budgets (D107) |
+| Another network member | What any contact can see; invite new members (unless the admin withdrew the right, D101) | Read others' 1:1 chats or groups they're not in; reuse an invite (D102); take an existing username (D103); flood nodes or phones with records or call pushes beyond the budgets (D107, D108) |
 | Lost/stolen phone | If unlocked: everything on it. If locked: encrypted DB protected by Android Keystore | — |
 
 Out of scope for V1: hiding metadata from nodes (sealed sender), global passive adversary
 traffic correlation, compromised phone OS.
+
+**Since M9 the working assumption is "any one node may be hostile"**: phones verify everything a node says (M9.1,
+below), and membership is decided by signed records that every node and every phone checks itself (M9.2).
 
 ## Layers
 
@@ -45,8 +48,9 @@ traffic correlation, compromised phone OS.
   `PUSH_TOKEN{messages_off}` and nodes push it for calls only. With «Пробуждение через Google» off the phone deletes its
   FCM token and sends `PUSH_TOKEN{withdrawn}`: nodes erase the token (the row stays, so an older token record cannot
   bring it back), Google is no longer told when the phone is woken, calls cannot ring while Otter is closed, and the
-  phone checks every 15 min. Old `PUSH_TOKEN` records with the token string stay in the record log until M9.2's
-  per-author compaction (C8). The phone never keeps a connection of its own in the background.
+  phone checks every 15 min. Since server 0.9.3 (D107) nodes keep only the newest `PUSH_TOKEN` record per author, so
+  an old record with the token string disappears from the record log once a newer one arrives (and cannot come back).
+  The phone never keeps a connection of its own in the background.
 
 ## Key verification
 
@@ -104,7 +108,8 @@ app: network link (any member invite or bootstrap link; only its manifest is use
 app: backup.auth{username} → node returns salt, kdf params (must be a client profile, else stop)
 app: Argon2id(password) → auth_secret
 app: backup.fetch{username, auth_secret} (inside the encrypted link)
-node: checks SHA-256(auth_secret) == auth_verifier (constant time), counts failures
+node: reserves the attempt as a failure (limits checked in the same write, D105), then
+      checks SHA-256(auth_secret) == auth_verifier (constant time); right secret → the row is removed
 node: returns meta + blob meta and lets this connection blob.get that blob
 app: decrypt with backup_key → seed, data → verify metas against the seed's account key
 app: login → INSTALL, new prekeys (installed_ms), SessionReset to every contact
@@ -123,9 +128,21 @@ app: login → INSTALL, new prekeys (installed_ms), SessionReset to every contac
   from `max(restored version, now ms)`, so a node serving an older genuine backup cannot make the phone's later backups
   lose to a newer one (D50). A words-only restore runs the directory sync verification on every `DIRECTORY_ENTRY`,
   counts only entries of the derived account key and takes the highest `version`; no valid entry → «Аккаунт не найден».
-* **Rate limit**: 5 failed `backup.fetch` per username per hour per node, 20/day per node
-  (with 3 nodes an online attacker gets at most 60 guesses/day — negligible against a
-  zxcvbn ≥ 3 password).
+* **Restore throttle (C4, C10, D105; server 0.9.3)**: every `backup.fetch` is first written to `auth_failures`
+  (username, source, time) in the same write transaction that checks the limits, so parallel wrong attempts cannot
+  overshoot; a correct secret (or a node error) removes the row. Per node: **5 failures per (username, source) per
+  hour** → `RETRY_LATER` for that source only; per username across sources **10 failures per 24 h free**, then each
+  attempt waits **30 s × 2^(n−10) after the last failure, at most 15 min**; per source across usernames **30 per 24 h
+  free**, then the same slow-down. A correct password during an active slow-down is refused too (no guessing
+  oracle). The answer says «too many attempts, retry in Ns». Source = the phone's TCP address at the node's WSS
+  listener (IPv4 address, IPv6 /64; loopback = `local`); no forwarding header is trusted. Result: a stranger can slow
+  one name down to one attempt per 15 min on one node, never lock it (the old node-wide 20/day lock is gone), and
+  each node counts separately; an online guesser gets at most about 110 attempts per name per node per day — negligible against
+  a zxcvbn ≥ 3 password. **Accepted until M9.3:** restores relayed by a dial-out pass-through arrive from that node's
+  address and share one source.
+* **Clashed names (C12, D103)**: for a name that ever clashed, `backup.auth` returns the `name#<8 hex>` candidates and
+  no salt, and `backup.fetch` with the plain name is `CONFLICT`; the phone tries at most 4 candidates, only of the form
+  `<typed name>#<8 hex>`, with the typed password.
 * **Known limitation**: whoever holds a node's disk can attempt **offline** guessing against
   the stored ciphertext/verifier. Mitigations: Argon2id with 64 MiB memory, enforced password
   strength (zxcvbn score ≥ 3, min 10 chars), user advised to use a passphrase.
@@ -172,11 +189,68 @@ Threat model: any one node may be hostile. Besides restore (above) and install (
 * **Shared connection log (C24, D96)**: node labels, no operator, no IP addresses.
 * **Release signing (C19, D97)**: a release build without the owner's keystore fails instead of being debug-signed.
 
-## Revocation
+## Membership (M9.2, D99–D104; server 0.9.3, app 0.9.1)
 
-Admin can revoke a user (`REVOCATION` signed by network key) — e.g. lost phone without
-backup, or member leaves. Nodes refuse the user's logins/records; clients mark them removed
-and groups rotate keys.
+Threat model: any one node may be hostile, so no node's word decides who is a member.
+
+* **Invite chain (limit 3, C6, D100)**: a new account's directory entry carries the inviter's signed `INVITE` and a
+  proof by the invite's one-time redeem key (derived from the link secret, which never leaves the two phones).
+  **Every node and every phone** verifies the chain of every account it does not know yet — on registration and on
+  replication: signed by the network key or a known member, proof valid, invite lifetime ≤ 30 days, registration
+  inside the invite's lifetime, inviter neither revoked nor without the right as of the invite's signed
+  `created_ms`. The accounts that predate M9.2 are listed as `founding_members` in the signed manifest. A hostile
+  node therefore cannot create a member that other nodes or phones accept.
+* **Invite rights (D101)**: every member may invite by default; a network-signed `INVITE_RIGHTS` withdraws or restores
+  one member's right. The entry's own `can_invite` is ignored.
+* **Single use (C5, D102)**: one invite redeemed several times (a partition or a hostile node) leaves one account (the
+  lowest proof hash); the others **and every account invited through them, at any depth** are disabled on every node
+  and every phone.
+* **Usernames (C12, D103)**: the clash rank is the inviter-signed invite time, fixed at admission.
+* **Phones (D104)**: a directory entry becomes a contact only if it is a founding member or its chain verifies;
+  revocations and rights are checked with the network key. A node can hide entries; it cannot invent members.
+* **Accepted limit (owner, 2026-11-15)**: rights and revocation are judged at the invite's `created_ms`, which the
+  inviter signs; an inviter can backdate an invite by up to its 30-day lifetime (e.g. to just before a revocation or a
+  withdrawn right). The admin revokes such accounts by hand (`otter-admin user list` shows them).
+
+## Revocation (C2, D99)
+
+The admin revokes a member with `otter-admin user revoke` (a `REVOCATION` signed by the network key) — e.g. a lost
+phone without backup, or a member who leaves. It is **permanent**. Every node applies it in the transaction that
+stores it, also when it arrives by replication: the account is closed (open sessions dropped), its mailbox, prekeys
+and push tokens are deleted, it cannot log in, submit, invite, fetch blobs or get TURN credentials, and TURN refuses
+its already-issued credentials (D108). Its records that arrive later by replication are skipped. Phones verify the
+record themselves: the 1:1 chat shows «Участник удалён» without composer or call button, outbox items to it fail,
+envelopes from it (calls included) are dropped, every group containing it rotates our sender key and stops
+encrypting to it, and the group's lowest-id non-revoked admin removes it from the signed group state.
+`otter-admin user list` asks a node with a network-key-signed request and verifies every record on the admin
+machine; comparing two nodes' lists shows a node that hides someone.
+
+## Budgets (C8, C9, D106, D107; server 0.9.3)
+
+A member's records are signed, so a hostile node cannot forge them — but it can relay a member's flood or replay old
+records. The budgets therefore hold where records are applied, for local submits **and** replicated records:
+* one-time prekeys ≤ 200 unconsumed per (user, device, owner node); old `PREKEYS` records compacted, consumed ids never
+  come back (`prekey_floor`);
+* `PUSH_TOKEN`: only the newest record per author;
+* `INVITE`: lifetime ≤ 30 days, ≤ 50 unexpired per author (the same 50 on every node), expired ones deleted;
+* compacted record keys are remembered for 30 days, so re-sending them changes nothing;
+* local submits only: `created_ms` ≤ 5 min ahead, `PREKEYS` ≤ 20 and `PUSH_TOKEN` ≤ 30 per author per hour;
+* blob quota and the 3-backup-blob limit are counted in the write transaction that inserts the blob (no race);
+* phone: a node's `prekeys_low` is obeyed only for owner nodes in the verified manifest (or the connected node), at
+  most once per owner per 5 min and 6 times per owner per day.
+
+## Calls under a hostile node or member (M8 review, D108)
+
+* **TURN**: a revoked account gets no new credentials and its earlier ones are refused on every authenticated TURN
+  request, so its relay stops within one permission refresh (≤ 5 min).
+* **Call pushes**: at most 8 high-priority call wake-ups per (sender, recipient device) per minute per node; beyond
+  that the wake-up is an ordinary coalesced one. No push at all for an envelope dated more than 5 min ahead. Only
+  the call offer is urgent (answer, candidates and hangup are fetched by the phone the offer woke).
+* **Phone**: a TURN answer is used only with 1–4 `turn:`/`turns:` URLs on one IPv4 host, udp/tcp transport, an
+  expiry in the future and ≤ 24 h away, username/password ≤ 256 chars — otherwise «Звонки недоступны» on that node.
+  Call content from a revoked contact never rings; an offer dated more than 5 min in the future is a missed call.
+* Unchanged: SDP and DTLS fingerprints travel only inside Signal-encrypted envelopes (D78), so neither a node nor a
+  third member can inject into or join a call.
 
 ## Node key compromise
 

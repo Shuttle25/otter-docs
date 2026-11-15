@@ -180,8 +180,10 @@ Layers, from pure to Android:
 * `core/data/.../calls`: **`CallStateMachine`** (pure Kotlin, no WebRTC, no Android: events in, effects out; states
   Idle → Outgoing (Соединение… / Звонит… after DELIVERED) / Incoming → Connecting → Active → Ended; timers from
   `CallTimers` (D81), glare, busy, stale offer, ICE restart); **`CallManager`** runs it on one event loop against
-  `CallTransport` (`CallSignaling`: outbox, urgent, 2-min expiry), `TurnCache` (credentials asked per call, last
-  answer only as fallback, D79), a `MediaEngine`, `CallLines` (local call rows) and `CallAlerts`; it implements
+  `CallTransport` (`CallSignaling`: outbox, 2-min expiry; since 0.9.1 only the offer is urgent, D108), `TurnCache`
+  (credentials asked per call, last answer only as fallback, D79; an answer outside the D108 bounds — 1–4
+  `turn:`/`turns:` URLs on one IPv4 host, udp/tcp, expiry in the future and ≤ 24 h away, fields ≤ 256 chars — is
+  refused and the call shows «Звонки недоступны»), a `MediaEngine`, `CallLines` (local call rows) and `CallAlerts`; it implements
   `CallInbox` (fed by `MailboxReceiver`) and `CallStarter` (what screens use: `state`, `notices`, `dial`,
   `peerHasPush`). The node connection is reached through **`CallLink`** (`SyncCallLink` with a `Provider<SyncEngine>`:
   SyncEngine → MailboxReceiver → CallInbox → CallLink would otherwise be a Dagger cycle); a call holds a `call` lease
@@ -251,7 +253,8 @@ Visual design, tokens, copy and behaviour: **[10 — design guidelines](10-otter
    with per-recipient group delivery. **No** file picker, voice, reactions, typing in V1. Since M8 a 1:1 chat has a
    call button in the top bar and call lines in the message list (D80); there is no «Звонки» tab.
 4. **Family (members directory)**: in the new-chat picker and in Settings → Семья; profile →
-   "Message", "Verify safety number"; "Invite" (all members may invite, hidden if `can_invite` revoked).
+   "Message", "Verify safety number"; "Invite" (every member may invite; when the admin withdrew the right with
+   `INVITE_RIGHTS`, the invite screen says so, D101).
 5. **New group / Group info** (`feature:groups`): "Новая группа" is the first row of the new-chat picker (name,
    "Семейная группа" switch, member checklist with search); group info shows the art or initials, name (admins can
    edit), "N участников", members with "админ", per-member admin actions in the anchored menu (and as accessibility
@@ -333,13 +336,38 @@ UI: onboarding steps `RESTORE_LINK`, `RESTORE_METHOD`, `RESTORE_PASSWORD`, `REST
 `ProfileRepository` (`core/data/profile`) saves a new display name in `account` together with a `profile_pending`
 setting (one transaction), so the edit works offline and the chat list, invites and Profile show it at once. While a
 session is up (`SyncEngine` launches `profile.run(api)` per session) a pending name is published as
-`DIRECTORY_ENTRY` version `entryVersion + 1` (same username, keys, `can_invite`, `registered_ms = account.created_ms`;
+`DIRECTORY_ENTRY` version `entryVersion + 1` (same username, keys, `can_invite`, `registered_ms = account.created_ms`,
+and since 0.9.1 our `invite_record` / `invite_proof` from `Settings.ownInvite()`, D100;
 `DirectoryEntries` builds registration and update entries alike) through `directory.update`; `CONFLICT` reads our
 own entry from the directory and continues from its version; network errors retry on the next session or after 30 s.
 `DirectorySync` handles our own entry: it raises `entryVersion` and, when nothing is pending, adopts its name
 (another install, restore). Other members' apps already update contact names and direct-chat titles from the
 `directory` event. UI: `feature:settings` — Settings (profile row), Profile, Edit name (code-point counter, inline
 errors); `ProfileStore` is the screens' interface (a fake in tests).
+
+### Membership (M9.2, D99–D104; app 0.9.1)
+A node can hide directory entries; it cannot invent members. Pure rules in `core/data/directory/Membership.kt`
+(invite chain like Go `admitChain`, invite lifetime ≤ 30 days, revocation and rights as of the invite's
+`created_ms`, duplicate rank), used by:
+* `DirectorySync`: an entry becomes a **new** contact only if it is a founding member (verified manifest) or its
+  chain verifies against the network key or an already accepted member; `REVOCATION` / `INVITE_RIGHTS` from
+  `directory.sync` are verified with the network key and mark contacts `revoked` (sticky). Of several redemptions of
+  one invite the lowest `SHA-256(invite_proof)` stays; losers and every contact invited through them (any depth) are
+  marked revoked and never accepted as inviters. A removal writes a `SYSTEM_MEMBER` line (`MessageKind = 7`,
+  `system_data` `revoked` | `duplicate_invite`) in the 1:1 chat.
+* Revoked contacts: the conversation shows «Участник удалён» instead of the composer and no call button; the
+  `Outbox` fails items to them; `MailboxReceiver` acks and drops their envelopes (calls included);
+  `GroupRevocations` rotates our sender key in every group containing them, stops encrypting to them, and the
+  group's lowest-id non-revoked admin removes them from the signed state.
+* `InviteRepository` puts `redeem_pub` and the signed `INVITE` into the link; `UNAUTHORIZED` from the node →
+  `NoInviteRightsException` («Администратор запретил вам приглашать…»). `Registration` derives the redeem key from
+  the link secret and sends `invite_record` / `invite_proof`, never the secret; a link without the signed invite (made
+  before 0.9.1) → `RegistrationError.InviteOutdated`.
+* `RestoreManager`: when `backup.auth` answers `candidates` (a clashed name), it tries at most 4 of them, only
+  `<typed name>#<8 hex>`, with the typed password (D103).
+* `PrekeyRefill`: a node's `prekeys_low` is obeyed only for owner nodes in the verified manifest (or the connected
+  node), at most once per owner per 5 min and 6 times per owner per 24 h (persisted in settings, D107).
+No Room schema change (still v8): `contacts.revoked` existed already.
 
 ### Photos (M4, D44–D48)
 `core/data/media`: `PhotoPrep` (JPEG ≤ 2560 px, EXIF orientation applied, no metadata, 64 px thumbnail),
