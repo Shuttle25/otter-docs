@@ -54,7 +54,7 @@ message RecordBody {
 | Type | Author | Payload | Notes |
 |------|--------|---------|-------|
 | `DIRECTORY_ENTRY` | user | user_id, username, display_name, account_pub, identity_pub, identity_sig, version, can_invite, registered_ms | Latest `version` wins; `registered_ms` = first registration, copied into later versions (D40) |
-| `PREKEYS` | user | signed prekey, Kyber last-resort prekey, list of one-time EC + Kyber prekeys **each tagged with an owning node_id**, `installed_ms` (M6, D52; 0 before) | See §5 |
+| `PREKEYS` | user | signed prekey, Kyber last-resort prekey, list of one-time EC + Kyber prekeys **each tagged with an owning node_id**, `installed_ms` (M6, D52; 0 before) | See §5. A newer `installed_ms` raises the device's install on the node like a newer `INSTALL`; 0.9.0+ phones decide "replaced" only from `INSTALL` (D89) |
 | `INVITE` | user | invite_id = SHA-256(secret), expires | |
 | `INVITE_USED` | user (new) | invite_id, new user_id | |
 | `ENVELOPE` | user | see §3 | Encrypted message |
@@ -63,7 +63,8 @@ message RecordBody {
 | `PUSH_TOKEN` (type 8) | user | `PushToken{device_id (= 1), kind (FCM = 1), token (1–4096 bytes UTF-8)}` | Newest `created_ms` per (user, device) wins, ties by record key; never expires (M5, D60) |
 | `BLOB_META` | user | size, chunk_size (262144), chunk_sha256[] (one per chunk), readers[] (1–100 user ids, not the author); body `expires_ms` ≤ created + 31 d | The record key (author‖id) is the blob key (D44); chunks replicate separately |
 | `BLOB_FETCHED` | user (reader) | blob_key | After a verified download; all readers → the blob is deleted everywhere (D45) |
-| `BACKUP_META` (type 10) | user | `BackupMeta{version, salt (16 B), kdf_m_kib (19456–262144), kdf_t (1–10), kdf_p (1–4), auth_verifier (32 B) = SHA-256(auth_secret), blob_key (32 B, starts with the author id), size}` | Latest `version` wins (D50); accepted only when its blob is a persistent blob of the author already on the node; see [04](04-security.md) |
+| `BACKUP_META` (type 10) | user | `BackupMeta{version, salt (16 B), kdf_m_kib (19456–262144), kdf_t (1–10), kdf_p (1–4), auth_verifier (32 B) = SHA-256(auth_secret), blob_key (32 B, starts with the author id), size}` | Latest `version` wins (D50); accepted only when its blob is a persistent blob of the author already on the node; see [04](04-security.md). **`version 0` = decoy** (C20, D90): `size 0`, `blob_key = author ‖ 16 zero bytes`, no blob, profile-1 KDF numbers, random salt and verifier; loses to any real version and never replaces one; `backup.fetch` never opens it |
+| `INSTALL` (type 17) | user | `Install{registration_id (1–16380), installed_ms (0 … node time + 10 min)}`; no expiry | Newest (installed_ms, registration_id) per user wins, the loser is deleted; a newer one deletes the device's prekeys like a newer `PREKEYS` (D52). Returned in `LoginResponse.install`. The only thing a phone believes about "another phone replaced me" (M9.1, C14, D89) |
 | `ANNOUNCEMENT` (type 15) | news key (`ID16(news pub)`) | `Announcement{text_ru, text_en, update?: AppUpdate{version_name, version_code, sha256, size}}`; texts ≤ 4000 runes, one non-blank | Valid only while the key is in the current manifest's `news_keys`; kept forever; not E2E encrypted (M6.5, D64–D66) |
 | `ANNOUNCEMENT_DELETED` (type 16) | news key | `AnnouncementDeleted{target}` (record key of the announcement) | Kept forever; wins over an announcement that arrives later (D66) |
 | `MANIFEST` | network | see [05](05-transport.md) | Highest version wins |
@@ -224,7 +225,10 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 1. On connect node sends `Event{hello}`: node_id, nonce, manifest version.
 2. Client: `auth.login{user_id, device_id, ts, sig(account_key, "otter-auth|"+node_id+nonce+ts)}`.
 3. Unauthenticated methods allowed: `register`, `manifest.get`, `backup.auth`, `backup.fetch`.
-   `auth.login` answers `LoginResponse{registration_id, installed_ms}` (M6, D52; an older node sends an empty body = zeros).
+   `auth.login` answers `LoginResponse{registration_id, installed_ms, install}` (M6, D52; an older node sends an empty
+   body = zeros). `install` (field 3, server 0.9.0+) is the newest account-signed `INSTALL` record the node holds for the
+   account. 0.9.0+ phones use only the signed `install` (checked with their own account key); the unsigned
+   `registration_id`/`installed_ms` are kept for 0.8.x phones and ignored (logged) by 0.9.0 (D89).
 
 ### Methods
 
@@ -243,9 +247,10 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 | `blob.put{blob_key, index, data}` | author only; each chunk verified against its hash (`INVALID` otherwise); re-put is OK |
 | `blob.get{blob_key, index}` → `BlobChunk{data}` | author or reader (`UNAUTHORIZED`); not yet replicated → `RETRY_LATER`; deleted → `NOT_FOUND`; a chunk missing here is fetched from a peer at once |
 | `blob.ack{record}` | reader's `BLOB_FETCHED` |
-| `backup.auth{username}` | **public.** → `BackupAuthResponse{salt, kdf_m_kib, kdf_t, kdf_p}`. Unknown name or no backup: stable fake salt `HMAC-SHA256(SHA-256("otter/fake-salt/v1" ‖ node private key), username)[:16]` with 65536/3/1 (D51) |
-| `backup.fetch{username, auth_secret}` | **public.** → `BackupFetchResponse{backup_meta, blob_meta}` and a grant on this connection to `blob.get` that one blob (as its owner). Wrong secret or no backup → `UNAUTHORIZED`; 5 failures per username per hour and 20 per day per node → `RETRY_LATER` "too many attempts" |
-| `backup.publish{Record BACKUP_META}` | logged in; `INVALID` unless the blob is a persistent blob of the author already on this node |
+| `backup.auth{username}` | **public.** → `BackupAuthResponse{salt, kdf_m_kib, kdf_t, kdf_p}`. Members without a backup have a decoy `BACKUP_META` (C20, D90), answered like a backup. Unknown usernames get the node-local fake salt `HMAC-SHA256(SHA-256("otter/fake-salt/v1" ‖ node private key), username)[:16]` with 65536/3/1 (D51; differs per node: reveals only non-membership). The phone treats the KDF numbers as a profile ID only (D86) |
+| `backup.fetch{username, auth_secret}` | **public.** → `BackupFetchResponse{backup_meta, blob_meta}` and a grant on this connection to `blob.get` that one blob (as its owner). Wrong secret, no backup or a decoy → `UNAUTHORIZED` (a decoy counts as a failure); 5 failures per username per hour and 20 per day per node → `RETRY_LATER` "too many attempts" |
+| `backup.publish{Record BACKUP_META}` | logged in; `INVALID` unless the blob is a persistent blob of the author already on this node (a decoy, `version 0`, has no blob, D90; a pre-0.9.0 node answers `INVALID` and the phone retries next session) |
+| `install.publish{Record INSTALL}` | logged in (server 0.9.0, D89): the caller's account-signed `INSTALL` → `Empty`; the session that publishes a newer install is that install (D56). A pre-0.9.0 node answers INVALID "unknown method"; the phone retries after the next login |
 | `push.register{Record PUSH_TOKEN}` | `RecordRequest` with the signed `PUSH_TOKEN` (M5, D60); the app sends it after login only when its FCM token changed. A pre-M5 node answers INVALID "unknown method" (harmless) |
 | `news.publish{Record}` | **public**, like `manifest.publish`: an ANNOUNCEMENT or ANNOUNCEMENT_DELETED signed by a current news key; idempotent; `otter-admin announce` sends it to every node (D67) |
 | `news.list` → `RecordBatch` | logged in: every stored ANNOUNCEMENT and ANNOUNCEMENT_DELETED, oldest first (D67) |
@@ -303,10 +308,16 @@ Inviter app                          Any node                     New user app
 1. Backup: the phone gzips a `BackupSnapshot` (client-only, `backup.proto`), encrypts it with Tink streaming AEAD
    (aad = blob key), uploads it as a persistent blob (`blob.create` + `blob.put`), then publishes the signed
    `BACKUP_META` with `backup.publish`. Meta and blob replicate to every node; the previous version is deleted.
-2. Restore: link of the network (manifest only) → `backup.auth{username}` → salt and KDF params → Argon2id →
-   `backup.fetch{username, auth_secret}` → meta and blob meta → `blob.get` on the granted connection → decrypt.
-3. After login the phone uploads fresh `PREKEYS` with a new `installed_ms` (D52), pulls the directory and sends
-   `SessionReset` to every contact (D53). The old install is cut off (D56).
+2. Restore: link of the network (manifest only) → `backup.auth{username}` → salt and KDF numbers, which must equal a
+   client profile (16-byte salt, profile 1 = 65536 KiB / 3 / 1), else stop with «Копия повреждена» before the
+   password is used (D86) → Argon2id → `backup.fetch{username, auth_secret}` → meta and blob meta → `blob.get` on the
+   granted connection → decrypt → verify `BACKUP_META`/`BLOB_META` signatures, blob key, salt and profile against the
+   decrypted seed's account key; any failure → «Копия повреждена», nothing written (D87). Later backups continue at
+   version `max(restored version, now ms)`. Words-only restore takes only a directory entry that passes the sync
+   verification for the derived account key, highest `version` (D88).
+3. After login the phone publishes its signed `INSTALL` (`install.publish`, D89), uploads fresh `PREKEYS` with the new
+   `installed_ms` (D52), pulls the directory and sends `SessionReset` to every contact (D53). The old install is cut off
+   (D56) and sees the newer `INSTALL` on its next login.
 
 ### Send 1:1
 1. If no session: `prekeys.fetch` → libsignal builds session (PQXDH).
