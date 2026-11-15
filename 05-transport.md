@@ -29,8 +29,9 @@ hosting outages.
   the messenger WebSocket lives on a secret path (`/<random-32-chars>`), anything else gets the site.
 * Can be placed **behind a CDN** (e.g. Cloudflare with WebSockets enabled): the client
   connects to CDN IPs, so blocking the node's IP doesn't matter; SNI is the CDN-hosted domain.
-  **Postponed (D75):** with the domestic relay phones never reach a foreign IP, and Cloudflare is reportedly
-  throttled in Russia; `via_cdn` stays in the manifest for later.
+  **Node links (D131):** a node can carry an extra, unpinned WSS endpoint behind a CDN (priority 10) for peers whose
+  path to its address is frozen by DPI (D130 detects the freeze and moves on); phones only reach it after every direct
+  endpoint failed.
 * Client: OkHttp on Android → TLS fingerprint identical to millions of ordinary Android apps.
 * Pinning: the manifest carries the node's TLS SPKI pins (`tls_spki_pins`, several during rotation);
   the app accepts only a leaf certificate matching a pin. Endpoints without pins use normal CA validation. Behind a CDN the CDN terminates TLS, so authentication relies on the inner
