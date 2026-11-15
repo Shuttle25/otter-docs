@@ -41,10 +41,18 @@ traffic correlation, compromised phone OS.
   config) is also kept out of git (D57).
 * A build without `google-services.json` has no Firebase app and never contacts Firebase; it checks every 15 min.
   Only `firebase-messaging` is linked (no Analytics or Crashlytics).
+* **Push switches (design limit 4, D94; app and server 0.9.0)**: with «Показывать уведомления» off the phone sends
+  `PUSH_TOKEN{messages_off}` and nodes push it for calls only. With «Пробуждение через Google» off the phone deletes its
+  FCM token and sends `PUSH_TOKEN{withdrawn}`: nodes erase the token (the row stays, so an older token record cannot
+  bring it back), Google is no longer told when the phone is woken, calls cannot ring while Otter is closed, and the
+  phone checks every 15 min. Old `PUSH_TOKEN` records with the token string stay in the record log until M9.2's
+  per-author compaction (C8). The phone never keeps a connection of its own in the background.
 
 ## Key verification
 
-* Invite QR carries inviter's keys → inviter/invitee are **verified** automatically.
+* Invite QR carries inviter's keys, but these link fields are unsigned: the invitee stores the inviter **unconfirmed**
+  (`entryVersion = 0`, only if `inviter_user_id = ID16(inviter_account_pub)`) and neither encrypts to it nor accepts
+  envelopes or group states signed with its link key until the inviter's directory entry verifies (C23, D95).
 * Other contacts are trusted on first use via the directory; users can verify in person by
   scanning each other's safety-number QR (libsignal fingerprint).
 * Identity key change of a contact ⇒ prominent warning; verified status cleared.
@@ -147,6 +155,23 @@ app: login → INSTALL, new prekeys (installed_ms), SessionReset to every contac
   in M9.3.
 * Messages that arrived for the old install after the last backup are lost; they trigger a session reset (D53).
 
+## What the phone does not take from a node (M9.1, app 0.9.0)
+
+Threat model: any one node may be hostile. Besides restore (above) and install (D89):
+* **Envelopes (C15, D91)**: an envelope is marked seen and acknowledged only after its signature verifies with the
+  sender's directory key; a forged copy is ignored (not acked: an ACK would delete the real envelope on every node).
+* **Sizes (C17, D93)**: frame ≤ 4 MiB, unhandled events ≤ 16 MiB, blob and APK chunks exactly the expected size,
+  APK ≤ 100 MiB; over a limit the connection is dropped and other nodes are tried; WebSocket compression is never
+  negotiated. **Accepted residual:** OkHttp buffers one whole WebSocket message before the app can check it, so a
+  hostile node can still make the phone hold one huge uncompressed frame, but only by really sending those bytes.
+* **Manifest fallback (C16, D92)**: a previous manifest's endpoint is used only for a node, and with pins, that the
+  newest manifest still authorizes.
+* **Pictures (C21, D98)**: photo and thumbnail headers are checked before decoding (≤ 100 megapixels, ≤ 4096 px
+  decoded).
+* **Secrets on screen (C22, D98)**: `FLAG_SECURE` on every screen with the recovery words or a backup password.
+* **Shared connection log (C24, D96)**: node labels, no operator, no IP addresses.
+* **Release signing (C19, D97)**: a release build without the owner's keystore fails instead of being debug-signed.
+
 ## Revocation
 
 Admin can revoke a user (`REVOCATION` signed by network key) — e.g. lost phone without
@@ -156,7 +181,7 @@ and groups rotate keys.
 ## Node key compromise
 
 Admin publishes a new manifest without that node (or with new keys). Clients and peers stop
-trusting the old key as soon as they see the new manifest.
+trusting the old key as soon as they see the new manifest (from app 0.9.0 also during the 7-day fallback, D92).
 
 ## Libraries
 

@@ -60,7 +60,7 @@ message RecordBody {
 | `ENVELOPE` | user | see §3 | Encrypted message |
 | `ACK` | user (recipient) | list of envelope ids | Deletes envelopes everywhere |
 | `PREKEY_CONSUMED` | node | user_id, key ids | Bookkeeping |
-| `PUSH_TOKEN` (type 8) | user | `PushToken{device_id (= 1), kind (FCM = 1), token (1–4096 bytes UTF-8)}` | Newest `created_ms` per (user, device) wins, ties by record key; never expires (M5, D60) |
+| `PUSH_TOKEN` (type 8) | user | `PushToken{device_id (= 1), kind (FCM = 1), token (1–4096 bytes UTF-8), messages_off (4), withdrawn (5)}`. `messages_off`: notifications off on the phone, wake it for calls only. `withdrawn`: Google wake-ups off, `token` empty and `messages_off` false (server 0.9.0, D94) | Newest `created_ms` per (user, device) wins, ties by record key; never expires (M5, D60). A withdrawn record erases the token but keeps the row (`created_ms`, `record_key`), so an older token record replicated later loses (D94). A 0.8.x node refuses withdrawn records as invalid |
 | `BLOB_META` | user | size, chunk_size (262144), chunk_sha256[] (one per chunk), readers[] (1–100 user ids, not the author); body `expires_ms` ≤ created + 31 d | The record key (author‖id) is the blob key (D44); chunks replicate separately |
 | `BLOB_FETCHED` | user (reader) | blob_key | After a verified download; all readers → the blob is deleted everywhere (D45) |
 | `BACKUP_META` (type 10) | user | `BackupMeta{version, salt (16 B), kdf_m_kib (19456–262144), kdf_t (1–10), kdf_p (1–4), auth_verifier (32 B) = SHA-256(auth_secret), blob_key (32 B, starts with the author id), size}` | Latest `version` wins (D50); accepted only when its blob is a persistent blob of the author already on the node; see [04](04-security.md). **`version 0` = decoy** (C20, D90): `size 0`, `blob_key = author ‖ 16 zero bytes`, no blob, profile-1 KDF numbers, random salt and verifier; loses to any real version and never replaces one; `backup.fetch` never opens it |
@@ -251,19 +251,25 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 | `backup.fetch{username, auth_secret}` | **public.** → `BackupFetchResponse{backup_meta, blob_meta}` and a grant on this connection to `blob.get` that one blob (as its owner). Wrong secret, no backup or a decoy → `UNAUTHORIZED` (a decoy counts as a failure); 5 failures per username per hour and 20 per day per node → `RETRY_LATER` "too many attempts" |
 | `backup.publish{Record BACKUP_META}` | logged in; `INVALID` unless the blob is a persistent blob of the author already on this node (a decoy, `version 0`, has no blob, D90; a pre-0.9.0 node answers `INVALID` and the phone retries next session) |
 | `install.publish{Record INSTALL}` | logged in (server 0.9.0, D89): the caller's account-signed `INSTALL` → `Empty`; the session that publishes a newer install is that install (D56). A pre-0.9.0 node answers INVALID "unknown method"; the phone retries after the next login |
-| `push.register{Record PUSH_TOKEN}` | `RecordRequest` with the signed `PUSH_TOKEN` (M5, D60); the app sends it after login only when its FCM token changed. A pre-M5 node answers INVALID "unknown method" (harmless) |
+| `push.register{Record PUSH_TOKEN}` | `RecordRequest` with the signed `PUSH_TOKEN` (M5, D60); the app sends it after login only when its push state changed (token, `messages_off`, `withdrawn`), and at once when a switch in «Уведомления» changes while online (D94). A pre-M5 node answers INVALID "unknown method" (harmless) |
 | `news.publish{Record}` | **public**, like `manifest.publish`: an ANNOUNCEMENT or ANNOUNCEMENT_DELETED signed by a current news key; idempotent; `otter-admin announce` sends it to every node (D67) |
 | `news.list` → `RecordBatch` | logged in: every stored ANNOUNCEMENT and ANNOUNCEMENT_DELETED, oldest first (D67) |
 | `turn.credentials{}` → `TurnCredentials` | logged in (M8, D77): TURN-REST username/password for **this** node's relay, `ttl_s` 43200, `urls` (`turn:IP:3478?transport=udp`, `…?transport=tcp`, `turns:IP:5349?transport=tcp` only when the node's WSS has TLS); asked on every call (D79); TURN off → UNAVAILABLE (9); pre-M8 nodes → INVALID |
-| `push.status{user_id}` → `PushStatus{has_push}` | logged in (M8): true if this node holds a PUSH_TOKEN for (user, device 1); the caller warns that a phone without push may not ring |
+| `push.status{user_id}` → `PushStatus{has_push}` | logged in (M8): true if this node holds a non-empty push token for (user, device 1); false for a withdrawn device (D94; `messages_off` still counts as push: calls ring); the caller warns that a phone without push may not ring |
 | `apk.get{sha256, index}` → `ApkChunk{data, total_size}` | logged in: 1 MiB chunk of an APK imported with `otter-node apk import`; unknown hash / index past the end → NOT_FOUND (D68) |
 | `ping` | keep-alive / RTT measurement |
 
-Events: `hello`, `envelope` (mailbox delivery, batched), `manifest` (newer version available),
+Events: `hello`, `envelopes` (mailbox delivery, a `RecordBatch` of at most 100 records and, from server 0.9.0, at most
+768 KiB of records, always at least one; D93), `manifest` (newer version available),
 `directory` (changes), `prekeys_low`, `news` (`Empty`: an announcement was accepted or dropped → re-fetch `news.list`, D67).
 
 Status codes: 0 OK, 1 retry-later, 2 unauthorized, 3 invalid-signature, 4 quota, 5 not-found,
 6 revoked, 7 conflict (e.g. username taken), 9 unavailable (feature off on this node, e.g. TURN; M8).
+
+Client receive limits (app 0.9.0, C17, D93): a frame ≤ 4 MiB; events received but not yet handled ≤ 16 MiB;
+`blob.get` data exactly `min(256 KiB, size − offset)`; `apk.get` data exactly `min(1 MiB, size − offset)`, the APK
+1 byte to 100 MiB as signed in `AppUpdate.size`. Over a maximum the phone drops the connection and tries another node.
+The phone never negotiates WebSocket compression (`permessage-deflate`); nodes never offer it.
 
 ## 5. Prekeys across nodes
 
@@ -325,7 +331,7 @@ Inviter app                          Any node                     New user app
 3. Node validates, stores in recipient mailbox, appends to oplog, responds OK → UI ✓.
 4. Replicates to peers ([03](03-mesh-replication.md)); if the recipient has no session on it, the responsible
    push-capable node sends a constant FCM wake-up (D58, [06](06-node-architecture.md) "Push").
-5. Recipient's node pushes `Event{envelope}`; recipient decrypts, stores, sends `msg.ack`
+5. Recipient's node pushes `Event{envelopes}`; recipient decrypts, stores, sends `msg.ack`
    and an encrypted `DELIVERED` receipt (urgent=false) → sender UI ✓✓; on view → `READ`.
 6. ACK replicates; all nodes delete the envelope.
 
