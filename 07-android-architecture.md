@@ -66,6 +66,18 @@ interface Connection { val incoming: Flow<Frame>; suspend fun send(f: Frame); fu
 `StateFlow<ConnectionState>` (Connecting / Connected(node, endpoint, rtt) / Offline(retryAt)).
 `ProtocolClient` sits on top: request/response correlation, timeouts, auth, event stream.
 
+**Receive limits** (app 0.9.0, C17, D93; `ReceiveLimits`): frame ≤ 4 MiB (`RpcClient`); events received but not yet
+collected ≤ 16 MiB (counted in bytes, the channel itself is unbounded); `blob.get` chunk ≤ 256 KiB and exactly
+`min(256 KiB, size − offset)` (`NodeApi`, `MediaTransfers`); `apk.get` chunk ≤ 1 MiB and exactly `min(1 MiB, size −
+offset)`, signed `AppUpdate.size` 1 byte to 100 MiB (`ApkUpdater`, else «Файл повреждён»). A frame, the event queue or
+a chunk over its maximum raises `OversizeFrame`: the connection is dropped, `ConnectionManager` records an endpoint
+failure and a «Журнал подключений» line `limit: …`, and races the other candidates at once (an ordinary session end
+waits and races all). A chunk under the maximum but of the wrong size is refused before it reaches the disk (photo:
+retried later). `OkHttpTransport.NoCompression` (an application interceptor: OkHttp runs no network interceptors for
+web sockets) removes OkHttp's `permessage-deflate` offer and refuses an answer that enables compression. Accepted
+residual: OkHttp buffers a whole message before the app sees it, so one huge uncompressed frame is still buffered
+(D93).
+
 ### Outbox (`core/sync`)
 * Every outgoing envelope is first written to the `outbox` table (survives process death).
 * Sender loop: encrypt lazily (just before sending, so session state is current), `msg.send`,
@@ -75,9 +87,13 @@ interface Connection { val incoming: Flow<Frame>; suspend fun send(f: Frame); fu
   (covers the "node died before replicating" case).
 
 ### MailboxReceiver
-* On `envelope` events: dedup by id (`seen_envelopes` table, 30 d) → decrypt via libsignal
-  → persist message in one DB transaction with the libsignal state update → `msg.ack`
-  → queue `DELIVERED` receipt.
+* On `envelopes` events: skip (and ack) ids already in `seen_envelopes` (30 d) → look up the sender (only contacts
+  with a directory entry, `entryVersion > 0`, D95) → verify the record signature → decrypt via libsignal → persist the
+  message **and** its `seen_envelopes` row in one DB transaction → `msg.ack` → queue `DELIVERED` receipt (D91, C15).
+* A copy that fails the signature check is logged and neither marked seen nor acked (an ACK would tombstone the real
+  envelope on every node). Content handled outside a transaction (calls, group update, sender key, session reset) is
+  marked seen right after it is handled; libsignal writes its own state outside Room, so `DuplicateMessageException`
+  on a 1:1 envelope ("decrypted before a crash cut the commit") is marked seen and acked, nothing shown, no reset.
 * Decryption failure ⇒ request session reset (`PLAINTEXT_RETRY`), show "message couldn't be
   decrypted" placeholder.
 
@@ -129,7 +145,16 @@ interface Connection { val incoming: Flow<Frame>; suspend fun send(f: Frame); fu
 * Background entry points (push, workers, notification actions) call `AccountRepository.load()` first: the process
   may have started with no screen. `OtterApp` applies FAST/SAVER only once an account exists.
 * **Token** (`PushRegistrar`): stored by `OtterApp`/`onNewToken`, sent as a signed `PUSH_TOKEN` via `push.register`
-  at each login only when it differs from the last accepted one (D60).
+  at each login only when the push state (token, `messages_off`, `withdrawn`) differs from the last accepted one (D60,
+  D94).
+* **Push switches** (app 0.9.0, D94; `PushSwitches`, Settings → «Уведомления»): «Показывать уведомления» off also sends
+  `PUSH_TOKEN{messages_off}`: nodes then wake the phone for calls only (no message or announcement pushes).
+  «Пробуждение через Google» (default on, always shown, also without Google services) off deletes the FCM token
+  (`FirebasePushTokens`: `deleteToken`, auto-init off; `OtterApp` and `onNewToken` then keep no token) and sends
+  `PUSH_TOKEN{withdrawn, token = ""}`: nodes erase the token, `push.status` is false, the phone runs in SAVER and the
+  screen says «Без пробуждения через Google звонки не будут приходить». On again → a fresh token is fetched and sent.
+  Either switch is sent at once when online, otherwise at the next login. There is **no keep-alive or persistent
+  connection** on the phone: background delivery is Firebase or the 15-min saver.
 * **Missed wake-up** (`PushMonitor.onDelivered`): a session receives an envelope created after the engine last went
   offline and after the last FCM wake, ≥ 60 s before the session started; at most one per session, kept 24 h. Any FCM
   wake clears them.
@@ -144,7 +169,8 @@ Local only: decrypted on the device; nothing readable goes through Google. `Mess
   (`MainActivity` → `AppNavHost`);
 * `VISIBILITY_PRIVATE` with the public version «Otter» / «Новое сообщение»;
 * nothing for the chat open on screen (`ActiveConversation` + `AppVisibility`); cleared when the chat is read;
-* in-app switch «Показывать уведомления» (default on), «Настройки Android» opens the system page; POST_NOTIFICATIONS
+* in-app switch «Показывать уведомления» (default on; off also stops message pushes, D94), «Пробуждение через Google»
+  (D94), «Настройки Android» opens the system page; POST_NOTIFICATIONS
   asked once (Android 13+) when the chat list is first shown;
 * small icon `ic_stat_otter`, generated by `scripts/export-assets.py`.
 Not in V1: per-chat channels or mute, per-contact sounds, a lock-screen preview setting.
@@ -232,7 +258,7 @@ Visual design, tokens, copy and behaviour: **[10 — design guidelines](10-otter
    actions), add members, leave (the last admin first picks a new admin). Removed members see the group read-only.
 6. **Invite someone**: shows QR + share-link, expiry.
 7. **Settings** (scrollable, sections per guide §10): profile, family, notifications (M5: current mode explained by
-   consequences, «Показывать уведомления», «Настройки Android»), appearance (system/light/dark), photos & storage (auto-download,
+   consequences, «Показывать уведомления», «Пробуждение через Google», «Настройки Android»), appearance (system/light/dark), photos & storage (auto-download,
    safe cache size), security (app lock, verify contact, block screenshots), backups,
    recovery phrase (after device auth), connection (human status; node details inside), about. The very bottom shows
    «Otter 0.5.0 (abc1234)» (`versionName` + short git hash, D63).
@@ -246,7 +272,19 @@ Group receipts aggregation: see D23 in [00](00-decisions.md). Media/local-copy r
 * Seed stored encrypted in DB; re-displaying phrase requires device credential.
 * Photos on disk are the encrypted originals (`filesDir/media/*.otb`, Tink streaming AEAD, key in the DB) and are
   decoded into memory only; plaintext lands on storage only when the user saves to the gallery (D46).
-* `FLAG_SECURE` optional (setting) to block screenshots.
+* `FLAG_SECURE` optional (setting) to block screenshots. Always on (D98, C22) while a screen shows or takes the recovery
+  words or a backup password (phrase, phrase check, restore by words / password / history, backup password form):
+  `SecureWindow()` in `core/ui`, reference-counted per window so the next secure screen keeps the flag when the
+  previous one is disposed after it.
+* Pictures are decoded bounded (D98, C21): `PhotoLoader` reads the bounds first and refuses a source over
+  100 megapixels or with no size («Фото повреждено»); the decoded long edge is ≤ 4096 px, thumbnails ≤ 256 px.
+* The inviter from an invite link is stored unconfirmed (`verified = false`, `entryVersion = 0`, only if
+  `inviter_user_id = ID16(inviter_account_pub)`): no encryption to it, no envelopes or group states accepted from it
+  until its directory entry verifies (D95, C23).
+* «Журнал подключений» → «Поделиться» sends redacted lines: node label instead of host, no operator, IPs → `<ip>`
+  (D96, C24). The manifest fallback keeps a previous endpoint only for a node and pins the newest manifest still
+  authorizes (D92, C16).
+* Release builds fail without `keystore.properties` (D97, C19).
 * No analytics, no crash reporters that send data externally (local crash log, user can share).
 
 ## Testing
@@ -309,7 +347,7 @@ errors); `ProfileStore` is the screens' interface (a fake in tests).
 `Attachment`), `MediaTransfers` (per-session worker like `Outbox`: uploads missing chunks 4 at a time then releases
 the **held** outbox row; downloads resume from a `.part` file and check size + SHA-256; `BLOB_FETCHED` acks; promotes
 auto-downloads by the Wi-Fi/any/manual policy; optional save to the gallery), `IncomingPhotos` (receivers store a valid
-image attachment as REMOTE), `PhotoLoader` (decrypt + sampled decode into memory, LruCache), `GallerySaver`
+image attachment as REMOTE), `PhotoLoader` (decrypt + bounded sampled decode into memory, LruCache, D98), `GallerySaver`
 (Pictures/Otter), `MediaRepository` (= `PhotoStore`, the UI seam). UI: composer gallery button + camera icon,
 `PickVisualMedia`/`TakePicture` (FileProvider `${applicationId}.photos`), full-screen preview dialog with caption,
 photo bubbles with honest states, `PhotoViewerScreen` (zoom), Settings → «Фото и память». No Coil/CameraX: system
