@@ -149,7 +149,7 @@ tick. `blob.get` runs off the session's read loop (4 at a time), so a proxied ch
   behind `turn.credentials`; our own expiry check (injectable clock) wraps pion's auth handler on **every**
   authenticated request, because pion fires `OnAuth` only on an HMAC mismatch. pion's auth logger is silenced.
 * `server.go` — listeners (UDP/TCP 3478, TLS 5349 with the WSS certificate), quota handler with **reservations**
-  (a slot is reserved on Allocate and confirmed in `OnAllocationCreated`, stale after 5 s): per user (4) and per node
+  (a slot is reserved on Allocate and confirmed in `OnAllocationCreated`, stale after 5 s): per user (12: up to 3 per phone per call, and old ones linger until they time out) and per node
   (41 = relay port range); over the limit → 486.
 * `relay.go` — relay address generator: UDP only, IPv4 `relay_ip`, ports 49160–49200 (RESERVATION-TOKEN ports outside
   the range and RFC 6062 TCP relays refused); a token-bucket **rate cap per allocation**, each direction
@@ -190,7 +190,7 @@ Call signaling envelopes carry a 2-minute record expiry (D78): `Store.Mailbox` s
 | Mailbox max undelivered | 10 000 envelopes |
 | Requests | 50/s burst, 10/s sustained per session |
 | Registration attempts | 10/hour per IP |
-| TURN allocations (`[turn]`) | 4 per user, 41 per node (= relay port range) |
+| TURN allocations (`[turn]`) | 12 per user, 41 per node (= relay port range) |
 | TURN relayed rate (`[turn] relay_kbps`) | 200 kbit/s per allocation, each direction |
 
 ## Configuration (`/etc/otter/node.toml`)
