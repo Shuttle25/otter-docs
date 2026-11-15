@@ -14689,6 +14689,8 @@ Runs after M9.3 (and after ru-1 has joined). Nothing in this phase changes the p
 
 ### Task 60: Server — replication keep-alive ping with netlog
 
+> **Moved (2026-11-15):** done in the M9.0b hotfix 0.8.4 (`2026-11-15-m9-0b-frozen-links.md` Task 1, D130). Skip this task; merge `main` first.
+
 **Goal:** A peer session whose link died silently, or whose peer stops answering, ends within 85 s and leaves a
 `ping` line in the connectivity log, so the node redials.
 **Findings closed:** M9 roadmap "replication keep-alive ping (25 s) with netlog"; threat-model item 3 (a hostile

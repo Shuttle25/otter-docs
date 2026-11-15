@@ -1,0 +1,48 @@
+{
+  "planPath": "superpowers/plans/2026-11-15-m9-0b-frozen-links.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 1: Replication keep-alive ping with netlog (M9 Task 60, moved)",
+      "status": "pending",
+      "description": "**Goal:** A peer session whose link froze or whose peer stops answering ends within `peerPing + peerPingTimeout`\n\n**Verify:** `cd ~/Documents/Projects/OttterMSG/otter-server-0b && go test ./internal/replication/ -run 'Keepalive' -count=3 -race` → `ok`\n\n```json:metadata\n{\"files\": [\"otter-server/internal/replication/session.go\", \"otter-server/internal/replication/replicator.go\", \"otter-server/internal/replication/keepalive_test.go\"], \"verifyCommand\": \"`cd ~/Documents/Projects/OttterMSG/otter-server-0b && go test ./internal/replication/ -run 'Keepalive' -count=3 -race` \\u2192 `ok`\", \"acceptanceCriteria\": [\"A session over a connection that stops reading and writing ends on both nodes within `peerPing + peerPingTimeout`.\", \"Each node that noticed writes a netlog entry `Endpoint \\\"ping\\\"`, `Class timeout`, direction `out` on the dialer, `in` on the acceptor.\", \"A healthy session survives \\u2265 10 ping intervals (same `*session`).\", \"After the drop the nodes reconnect (a new session object appears).\"]}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 2: A frozen link ranks its endpoint down, so the next endpoint is tried",
+      "status": "pending",
+      "description": "**Goal:** On ru-1's pattern (connect, then freeze), the dialing node stops preferring the frozen endpoint after the\n\n**Verify:** `go test ./internal/replication/ -run 'Frozen|Throttle|Keepalive' -count=3 -race` → `ok`\n\n```json:metadata\n{\"files\": [\"otter-server/internal/replication/replicator.go\", \"otter-server/internal/replication/handshake.go:21\", \"otter-server/internal/replication/replicator.go\", \"otter-server/internal/replication/freeze_test.go\"], \"verifyCommand\": \"`go test ./internal/replication/ -run 'Frozen|Throttle|Keepalive' -count=3 -race` \\u2192 `ok`\", \"acceptanceCriteria\": [\"An outbound session that ends by a failed ping writes a netlog line for its endpoint with `Class reset_after_kb` and a `Detail` starting with `frozen:`, and the ranker records one throttle for it.\", \"With a frozen direct endpoint and a working second endpoint (priority 10), the dialer ends up on the second endpoint, a record registered on the far node reaches the dialer, and that session holds for \\u2265 10 ping intervals.\", \"A dial that succeeds but whose node handshake times out marks that endpoint failed (`lastFail`), so the next dial tries the next endpoint first.\", \"Existing `TestSessionLogsInboundAndThrottle` still passes (the < 2 min / \\u2265 1 KB rule is unchanged).\"]}\n```",
+      "blockedBy": [
+        0
+      ]
+    },
+    {
+      "id": 2,
+      "subject": "Task 3: `otter-admin node add-wss` and `node remove-endpoint`",
+      "status": "pending",
+      "description": "**Goal:** The owner can add a CDN-fronted WSS endpoint to an existing node (and remove it again) without touching the\n\n**Verify:** `go test ./internal/admin/ ./cmd/otter-admin/ -count=1` → `ok`\n\n```json:metadata\n{\"files\": [\"otter-server/internal/admin/nodeops.go\", \"otter-server/cmd/otter-admin/main.go\", \"otter-server/internal/admin/nodeops_test.go\", \"otter-server/cmd/otter-admin/main_test.go\"], \"verifyCommand\": \"`go test ./internal/admin/ ./cmd/otter-admin/ -count=1` \\u2192 `ok`\", \"acceptanceCriteria\": [\"`AddWSS` appends `{Kind WSS, Host, Port, Path = the node's secret path, ViaCdn, Priority}`; `Endpoints[0]` is unchanged.\", \"A `--cdn` endpoint has no pins; a non-CDN extra endpoint copies `Endpoints[0]`'s pins (same node certificate).\", \"Adding again with the same host and port replaces that endpoint (no duplicates).\", \"Host empty, port 0 or > 65535, a host equal to the node's own WSS host and port, or a node without a WSS endpoint \\u2192 error.\", \"`RemoveEndpoint` removes the WSS endpoint with that host and port and refuses to remove `Endpoints[0]` or a missing one.\", \"CLI prints the new endpoint and \\\"Run 'manifest sign' and 'manifest publish'.\\\"\"]}\n```",
+      "blockedBy": [
+        1
+      ]
+    },
+    {
+      "id": 3,
+      "subject": "Task 4: Docs: decisions, transport, deploy guide, M9 plan note",
+      "status": "pending",
+      "description": "**Goal:** The docs say what the code now does, and the M9 executor knows Task 60 is done.\n\n**Verify:** `cd ~/Documents/Projects/OttterMSG/docs-0b && scripts/secrets-check.sh` → `secrets check: ok`\n\n```json:metadata\n{\"files\": [\"docs-0b/00-decisions.md\", \"docs-0b/05-transport.md\", \"docs-0b/09-roadmap.md\", \"otter-server-0b/deploy/README.md\"], \"verifyCommand\": \"`cd ~/Documents/Projects/OttterMSG/docs-0b && scripts/secrets-check.sh` \\u2192 `secrets check: ok`\", \"acceptanceCriteria\": [\"D130/D131 rows carry the text of this plan's Decisions table.\", \"`05-transport.md` says: CDN-fronted WSS is used for node links that a censor freezes by address (D131), unpinned, priority 10.\", \"`deploy/README.md` holds the Cloudflare steps of Task 5 Step 6 with `<cdn-host>` and `<eeee-ip>` placeholders only.\", \"`scripts/secrets-check.sh` prints `secrets check: ok` in `docs-0b` and `otter-server-0b`.\"]}\n```",
+      "blockedBy": [
+        2
+      ]
+    },
+    {
+      "id": 4,
+      "subject": "Task 5: Release 0.8.4 and rollout (the owner runs every command)",
+      "status": "pending",
+      "description": "**Goal:** eeee and ru-1 run 0.8.4, eeee carries a Cloudflare-fronted endpoint, and ru-1's session to eeee holds.\n\n**Verify:** owner on ru-1: `journalctl -u otter-node --since \"-30min\" -o cat | grep -c \"peer session down\"` → `0`\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"owner on ru-1: `journalctl -u otter-node --since \\\"-30min\\\" -o cat | grep -c \\\"peer session down\\\"` \\u2192 `0`\", \"acceptanceCriteria\": [\"`make check`, scripts and bundle tests (scratch copy), and `secrets-check.sh` in both repos pass.\", \"Merged `--no-ff` to `main` and pushed only after the owner's OK; worktrees removed.\", \"eeee and ru-1 report `0.8.4 active` in `deploy/status.sh`.\", \"`otter-admin node list` shows eeee's second WSS line `cdn=true pin=-`.\", \"On ru-1, `otter-node netlog` shows `wss:<cdn-host>:443 out ok`, and `journalctl` shows no `peer session down` for 30 min.\"]}\n```",
+      "blockedBy": [
+        3
+      ]
+    }
+  ],
+  "lastUpdated": "2026-11-15T12:00:00Z"
+}
