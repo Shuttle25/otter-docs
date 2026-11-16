@@ -17,14 +17,21 @@
       ]
     },
     {
+      "id": 3,
+      "subject": "Task 3: Settings without section headers",
+      "status": "pending",
+      "description": "**Goal:** The Settings screen is a plain list of rows; the six section headers are gone.\n\n**Verify:** `./gradlew :feature:settings:testDebugUnitTest --tests '*SettingsScreenTest*'` → `BUILD SUCCESSFUL`\n\n```json:metadata\n{\"files\": [\"otter-android/feature/settings/src/main/kotlin/app/ottermsg/feature/settings/SettingsScreen.kt\", \"otter-android/feature/settings/src/main/res/values/strings.xml\", \"otter-android/feature/settings/src/main/res/values-en/strings.xml\", \"otter-android/feature/settings/src/test/kotlin/app/ottermsg/feature/settings/SettingsScreenTest.kt\"], \"verifyCommand\": \"./gradlew :feature:settings:testDebugUnitTest --tests '*SettingsScreenTest*' → BUILD SUCCESSFUL\", \"acceptanceCriteria\": [\"No section headers on the Settings screen; «Уведомления» appears once\", \"All rows still present in the same order\", \"No unused string resources\"]}\n```"
+    },
+    {
       "id": 2,
-      "subject": "Task 3: Design guide, checks, merge",
+      "subject": "Task 4: Design guide, checks, merge",
       "status": "pending",
       "description": "**Goal:** The guide matches the app, all checks pass, the owner sees it on a phone before merging.\n\n**Verify:** `cd ~/Documents/Projects/OttterMSG/otter-android-ui && ./gradlew lint testDebugUnitTest && scripts/secrets-check.sh` → `BUILD SUCCESSFUL`, `secrets check: ok`\n\n```json:metadata\n{\"files\": [\"docs-ui/10-otter-design-guidelines.md\"], \"verifyCommand\": \"`cd ~/Documents/Projects/OttterMSG/otter-android-ui && ./gradlew lint testDebugUnitTest && scripts/secrets-check.sh` → `BUILD SUCCESSFUL`, `secrets check: ok`\", \"acceptanceCriteria\": [\"§8 rows say: SENT «Одна галочка цвета текста», DELIVERED «Две галочки цвета текста», READ «Две галочки в залитом бирюзовом круге (отличается формой, не только цветом)»; plus «На фото: белые галочки, бирюзовый круг тёмной темы».\", \"The guide says news messages have no sender line.\", \"`./gradlew lint testDebugUnitTest` green; `scripts/secrets-check.sh` ok in `otter-android-ui` and `docs-ui`.\", \"Merged `--no-ff` only after the owner's OK.\"]}\n```",
       "blockedBy": [
-        1
+        1,
+        3
       ]
     }
   ],
-  "lastUpdated": "2026-11-15T12:00:00Z"
+  "lastUpdated": "2026-11-16T12:00:00Z"
 }

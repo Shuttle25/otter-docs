@@ -1,17 +1,20 @@
-# UI polish: clearer delivery ticks, no sender line in Otter news — Implementation Plan
+# UI polish: clearer delivery ticks, no sender line in Otter news, Settings without section headers — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers-extended-cc:subagent-driven-development (recommended) or superpowers-extended-cc:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Two owner requests (2026-11-15): (1) delivery ticks with real contrast, design **B "ink, then a teal badge"**
-chosen from three mock-ups; (2) news messages lose the «Выдра» / "Otter" line at the top of each bubble.
+chosen from three mock-ups; (2) news messages lose the «Выдра» / "Otter" line at the top of each bubble;
+(3) owner 2026-11-16: Settings shows only its rows, without the section headers («Профиль», «Семья», «Медиа»,
+«Уведомления», «Безопасность», «Подключение») — "no need for captions, just menu items".
 
 **Architecture:** `DeliveryStatusIcon` (core/ui) gets the ink colour from its caller and draws READ as a filled teal
 circle with cut-out ticks; `MessageMeta` passes its time colour and a photo flag. `NewsBubble` drops one `Text`.
+`SettingsRoute` drops its `Section(...)` headers.
 App only; no server, no proto, no database change.
 
 **Tech Stack:** Kotlin, Jetpack Compose (Material 3), Robolectric Compose tests, JVM contrast test.
 
-**Ships with:** the next app release (M9.2's 0.9.1 / versionCode 12). No version bump in this plan.
+**Ships with:** the next app release after 0.9.1 (M9.2 shipped 0.9.1 without it; now M9.3). No version bump in this plan.
 
 ---
 
@@ -254,7 +257,90 @@ oc -m "news: no «Выдра» line above each news message (owner); TalkBack ke
 
 ---
 
-### Task 3: Design guide, checks, merge
+### Task 3: Settings without section headers
+
+**Goal:** The Settings screen is a plain list of rows; the six section headers are gone.
+
+**Files:**
+- Modify: `otter-android/feature/settings/src/main/kotlin/app/ottermsg/feature/settings/SettingsScreen.kt` (the `Section(...)` calls in `SettingsRoute`, `private fun Section` at ~line 176, imports `androidx.compose.ui.semantics.heading` and `androidx.compose.ui.semantics.semantics`)
+- Modify: `otter-android/feature/settings/src/main/res/values/strings.xml`, `.../values-en/strings.xml` (delete `settings_profile`, `settings_family`, `settings_media`, `settings_notifications_section`, `settings_security`, `settings_connection`)
+- Create: `otter-android/feature/settings/src/test/kotlin/app/ottermsg/feature/settings/SettingsScreenTest.kt`
+
+**Acceptance Criteria:**
+- [ ] No «Профиль», «Семья», «Медиа», «Безопасность», «Подключение» text on the Settings screen; «Уведомления» appears once (the row).
+- [ ] Every row is still there in the same order: profile row, «Пригласить в семью», «Фото и память», «Уведомления», «Резервная копия», connection status, «Звонки только через сервер» (its explanation line stays: it says what the switch does), the full-screen-ringing fix when needed, «Журнал подключений», version footer.
+- [ ] The first row keeps a top gap (`Dimens.s8`) under the top bar.
+- [ ] No unused string resources left (`./gradlew :feature:settings:lint` has no new `UnusedResources`).
+
+**Verify:** `./gradlew :feature:settings:testDebugUnitTest --tests '*SettingsScreenTest*'` → `BUILD SUCCESSFUL`
+
+**Steps:**
+
+- [ ] **Step 1: Failing test** `SettingsScreenTest.kt`:
+
+```kotlin
+package app.ottermsg.feature.settings
+
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import app.ottermsg.core.network.ConnectionState
+import app.ottermsg.core.ui.theme.OtterTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = "ru")
+class SettingsScreenTest {
+    @get:Rule val compose = createComposeRule()
+
+    @Test fun onlyRowsNoSectionHeaders() {
+        val vm = SettingsViewModel(MutableStateFlow(null), MutableStateFlow(ConnectionState.Connecting), emptyFlow(), {})
+        compose.setContent { OtterTheme { SettingsRoute(onBack = {}, onInvite = {}, onProfile = {}, vm = vm) } }
+        for (header in listOf("Профиль", "Семья", "Медиа", "Безопасность", "Подключение"))
+            compose.onNodeWithText(header).assertDoesNotExist()
+        compose.onAllNodesWithText("Уведомления").assertCountEquals(1)
+        for (row in listOf("Пригласить в семью", "Фото и память", "Резервная копия", "Подключаемся…", "Журнал подключений"))
+            compose.onNodeWithText(row).assertExists()
+    }
+}
+```
+
+- [ ] **Step 2: Run — fails:** `Failed: assertDoesNotExist` for «Семья» (the first header found).
+
+- [ ] **Step 3: Implement.** In `SettingsRoute` delete the six lines `Section(stringResource(R.string.settings_…))`
+  and put `Spacer(Modifier.heightIn(min = Dimens.s8))` as the first child of the `Column` (`Spacer`, `heightIn` are
+  already imported). Delete `private fun Section(title: String)` with its KDoc, and the now unused imports
+  `androidx.compose.ui.semantics.heading` and `androidx.compose.ui.semantics.semantics` (check with
+  `grep -n "semantics\|heading" SettingsScreen.kt`; `Role` stays). Change the KDoc of `SettingsRoute` to
+  "Settings: one plain list of rows, no section headers (owner 2026-11-16)." Delete the six strings in both
+  `values/strings.xml` and `values-en/strings.xml`; first check nothing else uses them:
+  `git grep -n "settings_profile\b\|settings_family\b\|settings_media\b\|settings_notifications_section\|settings_security\b\|settings_connection\b"`
+  must list only the lines being deleted. (`settings_profile_*` strings with longer names stay.)
+
+- [ ] **Step 4: Run** the Verify command, then `./gradlew :feature:settings:testDebugUnitTest :feature:settings:lint` → `BUILD SUCCESSFUL`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add feature/settings/src/main/kotlin/app/ottermsg/feature/settings/SettingsScreen.kt \
+  feature/settings/src/main/res/values/strings.xml feature/settings/src/main/res/values-en/strings.xml \
+  feature/settings/src/test/kotlin/app/ottermsg/feature/settings/SettingsScreenTest.kt
+oc -m "settings: plain list of rows, no section headers (owner)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+**Later milestones:** new Settings rows (M9.4 «Сеть», M9.5 «Показывать меня в каталоге сети», M10 «Экономить
+трафик в видеозвонках») are added as plain rows in this list, without headers.
+
+---
+
+### Task 4: Design guide, checks, merge
 
 **Goal:** The guide matches the app, all checks pass, the owner sees it on a phone before merging.
 
@@ -264,6 +350,8 @@ oc -m "news: no «Выдра» line above each news message (owner); TalkBack ke
 **Acceptance Criteria:**
 - [ ] §8 rows say: SENT «Одна галочка цвета текста», DELIVERED «Две галочки цвета текста», READ «Две галочки в залитом бирюзовом круге (отличается формой, не только цветом)»; plus «На фото: белые галочки, бирюзовый круг тёмной темы».
 - [ ] The guide says news messages have no sender line.
+- [ ] §10 says: «Экран настроек — один список строк без заголовков разделов (владелец, 2026-11-16); таблица ниже
+  описывает группы строк, а не видимые заголовки».
 - [ ] `./gradlew lint testDebugUnitTest` green; `scripts/secrets-check.sh` ok in `otter-android-ui` and `docs-ui`.
 - [ ] Merged `--no-ff` only after the owner's OK.
 
@@ -272,19 +360,20 @@ oc -m "news: no «Выдра» line above each news message (owner); TalkBack ke
 **Steps:**
 
 - [ ] **Step 1:** Edit the guide as in the criteria; commit in `docs-ui`:
-  `oc -m "guide: delivery ticks design B, news without a sender line" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
+  `oc -m "guide: delivery ticks design B, news without a sender line, settings without section headers" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
 - [ ] **Step 2:** Run the Verify command and `scripts/secrets-check.sh` in `docs-ui`.
 - [ ] **Step 3: Ask the owner → look on a phone or the emulator** (debug build from `otter-android-ui`): a chat with
-  sent, delivered and read messages, a photo without a caption, the chat list, light and dark theme, and the news chat.
+  sent, delivered and read messages, a photo without a caption, the chat list, light and dark theme, the news chat,
+  and Settings without headers.
 - [ ] **Step 4: Ask the owner → merge** (through temporary worktrees, so busy trees stay untouched):
 
 ```bash
 cd ~/Documents/Projects/OttterMSG
 for r in otter-android docs; do
   git -C $r fetch origin && git -C $r worktree add ../$r-merge origin/main --detach
-  (cd $r-merge && git merge --no-ff --no-commit ui-ticks-news && oc -m "Merge UI polish: delivery ticks design B, news without sender line" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && scripts/secrets-check.sh && git push origin HEAD:main)
+  (cd $r-merge && git merge --no-ff --no-commit ui-ticks-news && oc -m "Merge UI polish: delivery ticks design B, news without sender line, settings without headers" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" && scripts/secrets-check.sh && git push origin HEAD:main)
   git -C $r worktree remove ../$r-merge
 done
 git -C otter-android worktree remove ../otter-android-ui && git -C docs worktree remove ../docs-ui
 ```
-  If an M9.2 branch already exists, tell its session: "merge origin/main into m9-2-membership" (the change then ships in 0.9.1).
+  If an M9.3 branch already exists, tell its session: "merge origin/main into the M9.3 branch" (the change then ships with M9.3).
