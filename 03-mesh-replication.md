@@ -69,6 +69,10 @@ each side streams its oplog after that cursor: PeerBatch{records, last_seq} (≤
 receiver: re-validates and applies each record, persists the cursor, answers PeerBatchAck
 ```
 
+Record signatures are checked v2-first, v1 only for records created before the current manifest's
+`sig_v1_until_ms` (M9.3, D109, [02](02-protocol.md) "Signature format"); replicated records keep whatever version their
+author signed, so v1 records stored before the cut-over keep replicating to nodes added later.
+
 The receiver applies batches in a separate loop (a queue of 4 slots, M9.2) so the reading loop keeps answering
 pings while a large catch-up batch is being applied (D130's 60 s pong timeout); a peer never has more than 4 batches
 unacknowledged, and an apply error still ends the session without advancing the cursor.
@@ -135,6 +139,12 @@ the same way for a registration and for a replicated record:
   deletes its mailbox, prekeys and push tokens on every node. Records of a revoked author that arrive later are
   skipped (no stall).
 * TURN refuses a revoked account's credentials as soon as the node holds the revocation (D108).
+* `REKEY` (M9.3, D111) must be signed by the network key. Every REKEY revokes its `old` account like a `REVOCATION`
+  (reason `rekey`); per `old` the later `created_ms` wins (ties → lower record key), in any arrival order (table
+  `rekeys`, migration 0015). The winner's `new` account is admitted without an invite chain (normally it also has
+  one: the 7-day network invite of `user rekey --old`), is never
+  disabled as a duplicate redemption, takes `min(own, old's)` clash rank and takes over `old`'s username once both
+  entries are present.
 
 ## Blob replication
 
@@ -159,6 +169,47 @@ Blob bytes are large, so they replicate separately from `BLOB_META` (D45), over 
   after creation.
 * Install rule on `PREKEYS` (D52): per (user, device) a newer `installed_ms` replaces all prekeys of the device, an
   older one is ignored (record kept), an equal one merges as before.
+
+### Backup handoff from `no_backups` nodes (M9.3, D113)
+
+A node marked `no_backups` in the manifest never keeps backups at rest:
+
+* Senders skip `BACKUP_META` and persistent `BLOB_META` oplog entries to it (the cursor moves past them); if an older
+  peer still sends one, it drops it; a peer answers its `PeerBlobGet` for a backup blob with "missing".
+* What phones upload to it is handed off: every minute `RunBackupHandoff` lists its local backup items (a backup blob
+  once a `BACKUP_META` references it or it is 1 h old; a `BACKUP_META` once its blob is gone here) and asks the peers
+  without `no_backups` over the existing sessions, whichever side dialed:
+  ```
+  PeerHoldsQuery{req, record_key}  →  PeerHolds{req, held}
+  ```
+  `held` = the record is stored and, for a `BLOB_META`, every chunk is present; a backup record the peer received and
+  deleted as superseded also counts (the asking node must not keep a stale copy). A peer serves 4 queries at a time
+  (busy → "not held"); a `no_backups` peer always answers "not held"; a 0.9.x peer never answers (the query times
+  out). Once **`min(2, nodes without no_backups)`** distinct peers said "held", the copy is deleted (a blob is
+  tombstoned like a superseded backup; log line `backup handed off`). With no such node in the manifest nothing is
+  deleted.
+
+### Restore tunnel (M9.3, D114)
+
+A `no_backups` node relays a phone's restore to a node that keeps backups ([02](02-protocol.md) "Nodes without
+backups and the restore tunnel"). The stream rides the **existing peer session** with the target, whichever side
+dialed it; the relay never dials for a tunnel (D132: links started from Russia to foreign hosting freeze).
+
+```
+relay → target: PeerTunnelOpen{stream}
+both:           PeerTunnelData{stream, data (1–32768 bytes)}   at most 32 unacknowledged per stream and direction
+both:           PeerTunnelAck{stream, chunks}                    returns window slots (never above 32)
+either:         PeerTunnelClose{stream, reason}
+```
+
+* The target accepts a stream only from a peer marked `no_backups`, only if it is not `no_backups` itself and serves
+  the tunnel listener (its WSS has TLS); otherwise it closes the stream with a reason. The stream ends in an
+  in-process TLS server with the node's WSS certificate and the normal client handler; the remote address is
+  `tunnel:<relay node id>`, which the restore limits use as the source (D105).
+* Limits: ≤ 16 streams per peer session, ≤ 4 per phone source and ≤ 32 per relay node, 2 min idle, 30 min life, 5 s
+  for the target's TLS server to accept a new stream. An empty or oversize data frame, or one past the window, ends the
+  stream; acks never raise the window above 32.
+* The relay sees only TLS records (sizes and timing), never the salt, the password check or the backup.
 
 ## Deletion & garbage collection
 
@@ -227,8 +278,12 @@ submit records dated more than 5 min ahead (M9.2), which would otherwise outrank
 
 * Peers authenticate each other with node keys from the current manifest; a node removed
   from the manifest is disconnected and its new records are rejected.
-* Every record is re-validated (signature, author not revoked, invite chain of a new account, budgets) before
-  being applied — a compromised peer cannot inject forgeries or members (M9.2: membership checks above).
+* Every record is re-validated (signature — v2 bound to this network after the cut-over, D109 —, author not revoked,
+  invite chain of a new account, budgets) before being applied — a compromised peer cannot inject forgeries or
+  members (M9.2: membership checks above), nor replay a member's record from another network that knows the same key
+  once the cut-over manifest is out (only v1 records created before it remain replayable).
+* A hostile peer can answer `PeerHolds{held: true}` falsely; a `no_backups` node then deletes its copy too early. With
+  two confirmations needed (when two nodes without the flag exist) one lying peer is not enough (D113).
 * Budgets hold on the replicated path too (D107): a hostile peer relaying a member's flood or replaying old
   records cannot grow prekeys, push-token records or invites beyond them. Submit rates (`PREKEYS` 20/h,
   `PUSH_TOKEN` 30/h per author) and the 5-minute future limit apply to local submits only; a hostile node can

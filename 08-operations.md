@@ -34,16 +34,21 @@ otter-admin node remove fi-1
 otter-admin node set-push --label fi-1 [--off]   # M5: mark push_capable (after deploy/push-key.sh)
 otter-admin node set-dial-out-only --label L [--off]     # M7: never dialed by the other nodes (D71); only for a
                                             # node that cannot accept inbound; a node in Russia stays --off (D132)
+otter-admin node set-no-backups --label L [--off]        # M9.3: the node keeps no backups at rest, hands phone
+                                            # uploads to the other nodes and serves the restore tunnel (D113, D114)
 otter-admin node add-reality --label fi-1 --host H --port 443 --pub B64URL --server-name dl.google.com
                                             # M7: REALITY endpoint (normally via deploy/reality-setup.sh, D72)
 otter-admin news init | show | revoke --pub HEX  # M6.5: news key in the desktop keyring (D65); then manifest sign
 otter-admin announce --ru ru.txt --en en.txt [--apk F --version-name V --version-code N]
 otter-admin announce --list | --delete ID_PREFIX # news to every node (D66, D67)
 otter-admin manifest sign                   # bump version, write manifest.bin
+otter-admin manifest sign --sig-v1-until 2026-12-01T12:00:00Z
+                                            # M9.3, once: the signature v2 cut-over (D110, see below)
 otter-admin manifest publish --via <node>   # push new manifest into the mesh
 otter-admin invite bootstrap                # first user's invite (QR in terminal + link; the link carries
                                             # the signed INVITE, M9.2 — importing it on a node is optional)
 otter-admin user list | revoke | invite-rights | found   # M9.2 members, see "Members" below
+otter-admin user rekey NAME --old CODE | --new CODE      # M9.3 lost phone, see "Lost phone" below
 otter-admin status --via <node>             # peers, lag, storage, users
 ```
 
@@ -75,6 +80,51 @@ Upgrading an existing network to 0.9.3: run `user list` (the current accounts sh
 with their user ids, `manifest sign`, `manifest publish`, then `user list` again — all show `founding=true`.
 Rights and revocation are judged at the invite's signed `created_ms`; an inviter can backdate an invite by up to
 its 30-day lifetime, so an account invited that way after a revocation must be revoked by hand.
+
+## Lost phone: re-key (M9.3, D111)
+
+When a member's phone is lost or stolen (or someone else has their recovery words), the admin moves the account to a
+new install in two steps. The person's own history on the lost phone is not recovered; their contacts keep the chats
+and see «ключ безопасности изменился».
+
+```
+otter-admin user list                          # find the lost account's user id (32 hex digits)
+otter-admin user rekey NAME --old CODE [--yes] [--via LABEL]...
+    # step 1: revokes the old account (REVOCATION, reason "rekey") and prints a 7-day invite link + QR for the new
+    # install. Asks "[y/N]" unless --yes. Recorded in rekeys/NAME.json only after both records reached a node.
+    # The person installs Otter fresh with that link and registers with the SAME username (shown as name#tag until
+    # step 2).
+otter-admin user rekey NAME --new CODE [--via LABEL]...
+    # step 2: CODE = «Код аккаунта» from the new phone (Settings → Профиль), read to you by phone or in person —
+    # never taken from a message anyone could send. Checks that the account exists under NAME and is not revoked,
+    # signs REKEY{old, new}; the new account gets the name, the clash rank and the old account's chats.
+    # rekeys/NAME.json becomes rekeys/NAME.done.json.
+```
+
+Groups swap the member automatically (one phone per group signs it, D112). If step 2 never happens, groups remove the
+member 14 days after step 1 like any revoked member.
+
+## Signature cut-over and the 0.10.0 rollout (M9.3, D109, D110)
+
+0.10.0 nodes and apps accept signature v2 but keep signing v1 until the manifest carries `sig_v1_until_ms`, because
+0.9.x apps would drop v2 records. Order:
+
+1. Every node on server 0.10.0 (`deploy/upgrade-all.sh 0.10.0`; mixed 0.9.x/0.10.0 nodes interoperate: all still sign v1).
+2. App 0.10.0 (13) released (`deploy/release-apk.sh 0.10.0 APK`, news `dist/news/0.10.0.md`).
+3. **Every phone** updated to 0.10.0 — check each one (Settings → О приложении). No admin command sets
+   `min_app_version` yet, so this is a manual check. Do not continue before.
+4. Cut-over: `otter-admin manifest sign --sig-v1-until <now + 48 h, RFC 3339>`, then `otter-admin manifest publish`.
+   The time is stored once in the admin dir (`sig_v1_until_ms`), must be in the future and can never be changed;
+   every later `manifest sign` keeps it. From then on the admin, the nodes and the phones sign v2; v1 records created
+   after that time are refused. Check on two phones: a message both ways, a photo, a group message; «Журнал
+   подключений» shows no signature errors.
+
+**Nodes without backups (D113, D114).** `otter-admin node set-no-backups --label L`, then `manifest sign` and
+`manifest publish`, for a node that must never keep backups at rest (the node in Russia). Set it only once every node
+and every phone runs 0.10.0: older nodes never confirm a handoff (the flagged node keeps its copies) and older apps
+cannot restore through the tunnel. The node's journal shows `backup handed off` once the other nodes hold a backup
+uploaded there, and `tunnel …` lines for relayed restores. A foreign node serves the tunnel only when its WSS has its
+TLS certificate.
 
 ## Deploying a node
 

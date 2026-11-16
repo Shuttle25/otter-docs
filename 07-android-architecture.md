@@ -213,6 +213,7 @@ Layers, from pure to Android:
 ```
 account(user_id, username, display_name, seed_enc, created)
 contacts(user_id, username, display_name, account_pub, identity_pub, verified, revoked, avatar_path, reset_ms)
+rekeys(old_user_id, new_user_id, created_ms, record_id, revoked_ms, applied_ms)     verified REKEYs (M9.3, DB v9)
 conversations(id, type{DIRECT|GROUP}, peer_user_id|group_id, title, last_message_id, unread, muted, pinned)
 groups(group_id, name, family, version, state_signed, prev_state, i_am_member, created_by)
 group_members(group_id, user_id, admin)
@@ -368,6 +369,43 @@ A node can hide directory entries; it cannot invent members. Pure rules in `core
 * `PrekeyRefill`: a node's `prekeys_low` is obeyed only for owner nodes in the verified manifest (or the connected
   node), at most once per owner per 5 min and 6 times per owner per 24 h (persisted in settings, D107).
 No Room schema change (still v8): `contacts.revoked` existed already.
+
+### Network-bound signatures, re-key, restore tunnel (M9.3, D109–D114, D134; app 0.10.0 (13))
+* **Signatures (D109)**: `SigContext(networkId, v1UntilMs)` (`core/crypto`): `networkId = ID16(network_pub)`,
+  `v1UntilMs` = the newest verified manifest's `sig_v1_until_ms`. `RecordCodec.sign(body, key, ctx)` signs v1 while it
+  is 0 and v2 once set; `RecordCodec.verify(…, ctx)` accepts v2, or v1 for records created before `v1UntilMs`. Every
+  signer goes through `LocalAccount.sign(body)` / `AccountRepository.sigContext()`, which take the context from
+  `SigContexts` (`ManifestUpdater`, the newest stored manifest); every verifier (`ManifestVerifier`,
+  `AnnouncementVerifier`, `DirectorySync`, `MailboxReceiver`, restore) uses the same context. `Registration` signs under
+  the node's manifest when it is newer than the link's (a link may predate the cut-over). An envelope whose signature
+  fails is dropped and **not** acked.
+* **Re-key (D111)**: `RekeyVerifier` (`core/crypto`) checks a `REKEY` like the node (network-signed, permanent, two
+  distinct 16-byte ids). `RekeyApplier`, run inside `DirectorySync`, stores verified REKEYs (Room v9 table `rekeys`):
+  the old account is revoked from the earliest REKEY of it (also for invite-chain checks); the winning REKEY's new
+  account is admitted without a chain and exempt from the duplicate-invite rule; once the new account is a contact
+  the direct chat moves to it (messages merged into the old conversation, peer changed), the new contact is marked
+  identity-changed (unverified), unsent outbox items to the old account are removed and their messages marked FAILED
+  (a retry goes to the new account), and a `SYSTEM_KEY_CHANGED` line (`MessageKind = 8`, «%1$s: ключ безопасности
+  изменился») is written; the chat list shows the same text. Our own re-key moves nothing.
+* **«Код аккаунта»** (Settings → Профиль): our user id as 32 hex digits in 8 groups of 4, with «Копировать код» and
+  the hint «Нужен администратору, если телефон потерян»; the admin types it into `otter-admin user rekey NAME --new`.
+* **Groups (D112)**: `GroupRules.evaluate(…, rekeys)` accepts a member-signed state that only swaps re-keyed members
+  for their new ids (a swap-shaped state without a known REKEY is parked "unknown rekey"). `GroupRevocations` (after
+  every directory sync) picks one phone per group to sign the swap (`GroupRepository.swapMember`): the lowest-id
+  non-revoked admin other than the old account, else the lowest-id non-revoked member. A `REVOCATION` with reason
+  `rekey` rotates our sender key at once but removes the member only after `REKEY_WAIT_MS` = 14 days without a REKEY
+  (`Settings.rekeyRevocations` remembers when each was seen). The swap shows the key-changed line in the group.
+* **Revoked signers (D134)**: `GroupApplier.signerKey` → known / unknown (park) / revoked (refuse; a parked state
+  whose signer is revoked meanwhile is deleted); `GroupRules.evaluate(…, currentSignerRevoked)` lets an honest state
+  valid against the previous one replace a state we hold from a signer revoked since.
+* **Restore tunnel (D113, D114)**: `Endpoints.restoreCandidates(manifest)` = the nodes without `no_backups` directly,
+  then each of their pinned, non-CDN WSS endpoints through each `no_backups` node (`Candidate.via` =
+  `<relay url>/tunnel?to=<hex node id>`, label `"<target> via <relay>"`, after the direct ones). `OkHttpTransport`
+  opens the WebSocket to the relay (pinned to the relay) and runs a second OkHttp client over a `TunnelSocket` (each
+  write ≤ 16 KiB per binary message, back-pressure at 1 MiB queued), whose TLS is pinned to the target (the target's name is never resolved, the connection never pooled). `RestoreManager`
+  uses these candidates for password restore and «Добавить историю» only; a direct attempt that fails with an
+  `IOException` (a freeze from inside Russia, D132) or `UNAVAILABLE` is retried once over the tunnels only; wrong
+  passwords and bad backups end at once. A `no_backups` node's `UNAVAILABLE` shows as a network error.
 
 ### Photos (M4, D44–D48)
 `core/data/media`: `PhotoPrep` (JPEG ≤ 2560 px, EXIF orientation applied, no metadata, 64 px thumbnail),

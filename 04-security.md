@@ -7,9 +7,9 @@
 | Network observer / ISP / DPI | See that you connect to some IPs over TLS-looking traffic; block IPs; throttle | Read content; easily classify traffic as a messenger (see [05](05-transport.md)) |
 | Hosting provider / seized node | Read node DB: metadata (who↔whom, when, sizes, usernames, display names), encrypted blobs, encrypted backups; drop messages | Read messages, media or history; forge messages; impersonate users |
 | Google (FCM, only on push-capable nodes and phones with a Firebase build) | Which Firebase project wakes which phone (token), when, and the push-capable node's IP | Read content, sender, chat or message ids: the push is a constant `{"w":"1"}` (M5, D59) |
-| Malicious node operator (one of 3) | Same as above, plus withhold records, hide directory entries, try offline password guessing on backups, refuse restores on its own node | Break E2E; inject forged records into honest nodes; create members, undo a revocation or restore invite rights (M9.2: every node and phone checks membership itself); lock a name's restore on other nodes (D105: a stranger can only slow one name down per node); flood other nodes past the record budgets (D107) |
+| Malicious node operator (one of 3) | Same as above, plus withhold records, hide directory entries, try offline password guessing on backups, refuse restores on its own node | Break E2E; inject forged records into honest nodes; create members, undo a revocation or restore invite rights (M9.2: every node and phone checks membership itself); lock a name's restore on other nodes (D105: a stranger can only slow one name down per node); flood other nodes past the record budgets (D107); replay a member's record from another network that knows the same key, once the cut-over manifest is out (D109); keep backups at rest or see a restore's password check when marked `no_backups` (D113, D114) |
 | Another network member | What any contact can see; invite new members (unless the admin withdrew the right, D101) | Read others' 1:1 chats or groups they're not in; reuse an invite (D102); take an existing username (D103); flood nodes or phones with records or call pushes beyond the budgets (D107, D108) |
-| Lost/stolen phone | If unlocked: everything on it. If locked: encrypted DB protected by Android Keystore | — |
+| Lost/stolen phone | If unlocked: everything on it. If locked: encrypted DB protected by Android Keystore | Keep the account after the admin re-keys it: the old key is revoked everywhere and its signatures, group states included, stop counting (M9.3, D111, D134) |
 
 Out of scope for V1: hiding metadata from nodes (sealed sender), global passive adversary
 traffic correlation, compromised phone OS.
@@ -22,13 +22,15 @@ below), and membership is decided by signed records that every node and every ph
 1. **E2E (content)** — libsignal: PQXDH session setup, Double Ratchet for 1:1, Sender Keys
    for groups. Forward secrecy and post-compromise security for 1:1; forward secrecy for groups
    with key rotation on membership change.
-2. **Record authenticity** — every record Ed25519-signed by its author (account, node, network key).
+2. **Record authenticity** — every record Ed25519-signed by its author (account, node, network key); since the M9.3
+   cut-over the signature also covers the network id (signature v2, D109).
 3. **Link** — client↔node and node↔node: TLS 1.3 (WSS) or VLESS+REALITY (X25519 auth), with
    server keys **pinned in the signed manifest**. Inside the link, node↔node additionally run a
    signed challenge with node keys (mutual authentication independent of the transport).
 4. **At rest on phone** — Room DB encrypted with SQLCipher; DB key wrapped by Android Keystore
    (hardware-backed where available). Attachments stored encrypted on disk.
-5. **At rest on node** — nothing readable is stored; backups encrypted with password-derived key (a persistent blob on every node, D50).
+5. **At rest on node** — nothing readable is stored; backups encrypted with password-derived key (a persistent blob on every node, D50,
+   except nodes marked `no_backups`, which keep none at rest, D113).
 
 ## Push notifications (M5, D58–D62)
 
@@ -96,7 +98,8 @@ unsafe and breaks decryption). After restore the client uploads new prekeys and 
 
 ### Storage
 * Backup is a persistent blob (chunked) + `BACKUP_META{version, salt, kdf params, auth_verifier, blob_key, size}`
-  signed by the account key; replicated to **all nodes** like any blob (D50).
+  signed by the account key; replicated to **all nodes** like any blob (D50) — except nodes marked `no_backups`
+  (M9.3, D113): they never receive backups and hand what phones upload to them to the other nodes.
 * `backup_key` and `auth_secret` are derived once, when the password is set, and kept wrapped by the Android Keystore
   (`SeedVault`), so automatic backups need no password. Password policy: ≥ 10 chars, zxcvbn score ≥ 3 (D55).
 * Schedule (V1): a full snapshot while the app is in the foreground when the last success is older than 24 h, and on
@@ -138,8 +141,8 @@ app: login → INSTALL, new prekeys (installed_ms), SessionReset to every contac
   listener (IPv4 address, IPv6 /64; loopback = `local`); no forwarding header is trusted. Result: a stranger can slow
   one name down to one attempt per 15 min on one node, never lock it (the old node-wide 20/day lock is gone), and
   each node counts separately; an online guesser gets at most about 110 attempts per name per node per day — negligible against
-  a zxcvbn ≥ 3 password. **Accepted until M9.3:** restores relayed by a dial-out pass-through arrive from that node's
-  address and share one source.
+  a zxcvbn ≥ 3 password. Restores relayed through a restore tunnel (D114) arrive as `tunnel:<relay node id>` and
+  all share that one source (accepted until a PROXY-header follow-up).
 * **Clashed names (C12, D103)**: for a name that ever clashed, `backup.auth` returns the `name#<8 hex>` candidates and
   no salt, and `backup.fetch` with the plain name is `CONFLICT`; the phone tries at most 4 candidates, only of the form
   `<typed name>#<8 hex>`, with the typed password.
@@ -167,9 +170,10 @@ app: login → INSTALL, new prekeys (installed_ms), SessionReset to every contac
   nodes (its session is closed, its acks are refused) and shows «Аккаунт на другом телефоне» on its next login. That
   screen offers «Этот телефон снова главный» (with a confirmation dialog): a new `installed_ms` on this phone, then the
   restore finish (signed `INSTALL`, fresh prekeys, a reset to every contact).
-* **Design limit 2**: whoever holds the recovery words (the seed) can still sign `INSTALL` and take the account (the real owner can take
-  it back with «Этот телефон снова главный», and the two phones can keep doing so). The fix is the admin-signed `REKEY`
-  in M9.3.
+* **Design limit 2** (closed in M9.3 by the admin re-key, below): whoever holds the recovery words (the seed) can
+  sign `INSTALL` and take the account (the real owner can take it back with «Этот телефон снова главный», and the two
+  phones can keep doing so). When the words or the phone are lost to someone else, the admin re-keys the account
+  (D111): the old key is revoked everywhere and the person continues under a new key.
 * Messages that arrived for the old install after the last backup are lost; they trigger a session reset (D53).
 
 ## What the phone does not take from a node (M9.1, app 0.9.0)
@@ -211,6 +215,46 @@ Threat model: any one node may be hostile, so no node's word decides who is a me
 * **Accepted limit (owner, 2026-11-15)**: rights and revocation are judged at the invite's `created_ms`, which the
   inviter signs; an inviter can backdate an invite by up to its 30-day lifetime (e.g. to just before a revocation or a
   withdrawn right). The admin revokes such accounts by hand (`otter-admin user list` shows them).
+
+## Bound to the network, lost phones, backups (M9.3, D109–D114, D134; server 0.10.0, app 0.10.0)
+
+* **Signature v2 (C7, D109, D110)**: record signatures cover `"otter-v2\x00" ‖ network_id ‖ body`, so a record signed
+  for this network is worthless in another one that knows the same key. Every node, phone (0.10.0) and the admin CLI
+  verifies v2 and v1, and signs v2 once the manifest carries `sig_v1_until_ms`; after that time v1 is refused for new
+  records. The cut-over is published only after every node and phone runs 0.10.0 (0.9.x phones would drop v2
+  records), with a 48 h margin for queued v1 messages.
+* **Lost-phone re-key (limit 2, D111)**: step 1 `otter-admin user rekey NAME --old CODE` revokes the lost account
+  (`REVOCATION`, reason `rekey`) and prints a 7-day network invite for a fresh install, which registers under the same
+  name (shown as `name#tag` meanwhile). Step 2: the person reads «Код аккаунта» (Settings → Профиль) to the admin by
+  phone or in person, and `--new CODE` signs `REKEY{old, new}`. The invite alone gives nothing: whoever redeems it gets
+  a new account, and it becomes the person only when the admin enters the code read aloud. Nodes and phones give
+  `new` the name, the clash rank and `old`'s direct chats; contacts see «ключ безопасности изменился» and the new
+  key is unverified until checked in person.
+* **Groups (D112, D134)**: one deterministic phone per group signs the swap old → new; while a `rekey` revocation waits
+  for its REKEY (≤ 14 days) the member stays listed but our sender key is rotated at once, so the lost phone reads no
+  new group messages. Group states signed by a revoked or re-keyed account are refused on every phone that knows the
+  revocation, and a state accepted from it earlier no longer outranks the honest members' next state.
+* **No backups at rest on exposed nodes (limit 1, D113)**: a node marked `no_backups` (the node in Russia) answers no
+  restore, receives no backups from peers, and deletes what phones upload to it once `min(2, other nodes)` other nodes
+  confirm they hold it. Seizing it gives no backups to guess offline.
+* **Restore tunnel (limit 1, D114)**: phones restore through the `no_backups` node to a node that keeps backups; the
+  phone's TLS runs end to end to that node and pins its certificate, so the relay sees only TLS record sizes and timing,
+  never the salt, the password check or the backup.
+* **Remaining limits**:
+  * Until the cut-over manifest is published, v1 signatures are still accepted for everything; afterwards a v1 record
+    created before the cut-over can still be replayed into another network that holds the same key (only with a seed
+    reused across networks).
+  * The re-keyed person's own history on the lost phone is not recovered (their backup belongs to the revoked key;
+    owner, Q5); contacts keep the chats.
+  * The admin must recognise the person who reads the account code; anyone who can talk the admin into a wrong code
+    takes over the name.
+  * Until the revocation reaches a node or phone, the lost phone's key still works there (as for any revocation).
+  * With only one node without `no_backups` the handoff needs one confirmation: if that node lies (`held` without
+    holding), the `no_backups` node deletes its copy early and the backup depends on that node alone (owner, Q3).
+  * A backup uploaded to a `no_backups` node rests there until it is handed off (≥ the time to the `BACKUP_META`, or
+    1 h, plus the confirmations); a 0.9.x peer never confirms.
+  * Every restore through one tunnel shares the relay's restore-limit source, so a stranger guessing through the same
+    relay slows the others down there (D105).
 
 ## Revocation (C2, D99)
 

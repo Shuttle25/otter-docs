@@ -2,7 +2,8 @@
 
 All wire structures are **Protocol Buffers** (shared `.proto` files in `proto/`, generated
 for Go and Kotlin/Java-lite). All signatures are **Ed25519** over the canonical serialized
-`body` bytes of a record (signature is *outside* the signed bytes).
+`body` bytes of a record (signature is *outside* the signed bytes); since M9.3 the signed message is bound to the
+network (signature v2, §2 "Signature format").
 
 ## 1. Identities
 
@@ -28,8 +29,8 @@ manifest. Used for node↔node authentication and to sign node-originated record
 (e.g. "delivered to mailbox" receipts used only for diagnostics).
 
 ### Network
-One Ed25519 **network admin key**, held offline by `otter-admin`. Signs the manifest and
-user revocations. Its public key is the network's root of trust and is embedded in every invite.
+One Ed25519 **network admin key**, held offline by `otter-admin`. Signs the manifest,
+user revocations, invite rights and re-keys (M9.3, D111). Its public key is the network's root of trust and is embedded in every invite.
 
 ## 2. Records
 
@@ -38,7 +39,7 @@ Everything nodes store and replicate is a `Record`:
 ```proto
 message Record {
   bytes  body      = 1;  // serialized RecordBody
-  bytes  signature = 2;  // Ed25519 by body.author key
+  bytes  signature = 2;  // Ed25519 by body.author key, v1 or v2 (M9.3, D109)
 }
 
 message RecordBody {
@@ -68,7 +69,8 @@ message RecordBody {
 | `ANNOUNCEMENT` (type 15) | news key (`ID16(news pub)`) | `Announcement{text_ru, text_en, update?: AppUpdate{version_name, version_code, sha256, size}}`; texts ≤ 4000 runes, one non-blank | Valid only while the key is in the current manifest's `news_keys`; kept forever; not E2E encrypted (M6.5, D64–D66) |
 | `ANNOUNCEMENT_DELETED` (type 16) | news key | `AnnouncementDeleted{target}` (record key of the announcement) | Kept forever; wins over an announcement that arrives later (D66) |
 | `MANIFEST` | network | see [05](05-transport.md) | Highest version wins |
-| `REVOCATION` | network | user_id, reason | Applied on accept and replication: no login/submit/invite/blob/TURN, sessions closed, mailbox/prekeys/push dropped; permanent, earliest `created_ms` kept (D99) |
+| `REVOCATION` | network | user_id, reason | Applied on accept and replication: no login/submit/invite/blob/TURN, sessions closed, mailbox/prekeys/push dropped; permanent, earliest `created_ms` kept (D99). Reason `rekey` = step 1 of a lost-phone re-key: phones keep the member in groups (keys rotated) up to 14 days waiting for the `REKEY` (D112) |
+| `REKEY` (type 18, M9.3) | network | `Rekey{old_user_id, new_user_id}` (16 bytes each, distinct); no expiry | Revokes `old` like a `REVOCATION` (reason `rekey`); of several REKEYs of one `old` the later `created_ms` wins, ties → lower record key; the winner's `new` is admitted without an invite chain, never disabled as a duplicate, inherits `min(own, old's)` clash rank and takes over the username; returned by `directory.sync`; phones move the direct chat to `new` (D111, D112) |
 | `INVITE_RIGHTS` | network | user_id, can_invite, version | Highest version wins, ties → false; overrides the default rights (every non-revoked member may invite, D101) |
 
 **Record key** (dedup/storage key everywhere, incl. "record_id" in [03](03-mesh-replication.md)
@@ -78,6 +80,19 @@ same id first.
 
 Nodes reject any record whose signature or author binding doesn't verify, whose
 `author` is revoked, or which violates quotas.
+
+### Signature format (M9.3, D109, D110)
+
+* **v1** (until the cut-over): Ed25519 over the `body` bytes.
+* **v2**: Ed25519 over `"otter-v2\x00" ‖ network_id(16) ‖ body`, `network_id = ID16(network_pub)` (first 16 bytes of
+  SHA-256; Go `records.MessageV2`, Kotlin `RecordCodec` with `SigContext`). The NUL keeps the prefix from being the
+  start of a valid protobuf body. `Record` has no version field.
+* **Verification** (nodes, phones from 0.10.0, `otter-admin`): try v2; else accept v1 only if
+  `Manifest.sig_v1_until_ms == 0` or the record's signed `created_ms < sig_v1_until_ms` (the current manifest's value).
+* **Signing**: v1 while the newest manifest has `sig_v1_until_ms == 0`; v2 once it is set. The admin sets it once with
+  `otter-admin manifest sign --sig-v1-until <RFC 3339>` (publish time + 48 h) after every node and phone runs 0.10.0;
+  from then on the admin signs manifests, network records, bootstrap invites and announcements v2.
+* Shared vectors: `manifest_v2_record_hex`, `directory_entry_v2_record_hex` (`testdata/vectors/v1.json`).
 
 ### Wire details fixed in M1 (source of truth: `otter-server/proto/otter/v1/*.proto`)
 
@@ -240,7 +255,7 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 | `register` | DIRECTORY_ENTRY (with `invite_record` + `invite_proof`, M9.2; `invite_secret`, field 1, stays empty: the secret never leaves the phone) + INVITE_USED + PREKEYS → creates account; broken chain → `INVALID`, invite already redeemed here or expired → `CONFLICT`, inviter not replicated here yet → `RETRY_LATER` (D100, D102) |
 | `auth.login` | see above |
 | `manifest.get` | latest signed manifest |
-| `directory.sync{since}` | current entries of all users (revoked included) + every `REVOCATION` and `INVITE_RIGHTS` (M9.2, D99), so phones verify them with the network key |
+| `directory.sync{since}` | current entries of all users (revoked included) + every `REVOCATION` and `INVITE_RIGHTS` (M9.2, D99) + the winning `REKEY` of every replaced account (M9.3, D111), so phones verify them with the network key |
 | `directory.update{record}` | newer version of the caller's own DIRECTORY_ENTRY (profile edit, D39): OK; UNAUTHORIZED (someone else's entry); INVALID (changed username, not a directory entry); CONFLICT (version not newer); RETRY_LATER (user not replicated here yet). Every session gets a `directory` event |
 | `prekeys.upload` / `prekeys.fetch{user,device}` | Signal prekey bundles (`prekeys.upload` ≤ 20 per author per hour → `QUOTA`, M9.2 D107) |
 | `msg.send{Record}` | submit ENVELOPE; response = stored (✓ "sent") |
@@ -250,8 +265,8 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 | `blob.put{blob_key, index, data}` | author only; each chunk verified against its hash (`INVALID` otherwise); re-put is OK |
 | `blob.get{blob_key, index}` → `BlobChunk{data}` | author or reader (`UNAUTHORIZED`); not yet replicated → `RETRY_LATER`; deleted → `NOT_FOUND`; a chunk missing here is fetched from a peer at once |
 | `blob.ack{record}` | reader's `BLOB_FETCHED` |
-| `backup.auth{username}` | **public.** → `BackupAuthResponse{salt, kdf_m_kib, kdf_t, kdf_p}`. Members without a backup have a decoy `BACKUP_META` (C20, D90), answered like a backup. Unknown usernames get the node-local fake salt `HMAC-SHA256(SHA-256("otter/fake-salt/v1" ‖ node private key), username)[:16]` with 65536/3/1 (D51; differs per node: reveals only non-membership). The phone treats the KDF numbers as a profile ID only (D86) |
-| `backup.fetch{username, auth_secret}` | **public.** → `BackupFetchResponse{backup_meta, blob_meta}` and a grant on this connection to `blob.get` that one blob (as its owner). Wrong secret, no backup or a decoy → `UNAUTHORIZED` (a decoy counts as a failure). Limits per node (M9.2, D105): 5 failures per (username, source) per hour; per username 10 and per source 30 failures per 24 h free, then a wait of 30 s doubling to 15 min after the last failure → `RETRY_LATER` "too many attempts, retry in Ns". A plain name shared after a clash → `CONFLICT` (use `name#tag`, D103) |
+| `backup.auth{username}` | **public.** On a node marked `no_backups` → `UNAVAILABLE` "restore through another node" (M9.3, D113). → `BackupAuthResponse{salt, kdf_m_kib, kdf_t, kdf_p}`. Members without a backup have a decoy `BACKUP_META` (C20, D90), answered like a backup. Unknown usernames get the node-local fake salt `HMAC-SHA256(SHA-256("otter/fake-salt/v1" ‖ node private key), username)[:16]` with 65536/3/1 (D51; differs per node: reveals only non-membership). The phone treats the KDF numbers as a profile ID only (D86) |
+| `backup.fetch{username, auth_secret}` | **public.** On a `no_backups` node → `UNAVAILABLE` before any attempt is counted (D113). → `BackupFetchResponse{backup_meta, blob_meta}` and a grant on this connection to `blob.get` that one blob (as its owner). Wrong secret, no backup or a decoy → `UNAUTHORIZED` (a decoy counts as a failure). Limits per node (M9.2, D105): 5 failures per (username, source) per hour; per username 10 and per source 30 failures per 24 h free, then a wait of 30 s doubling to 15 min after the last failure → `RETRY_LATER` "too many attempts, retry in Ns". A plain name shared after a clash → `CONFLICT` (use `name#tag`, D103) |
 | `backup.publish{Record BACKUP_META}` | logged in; `INVALID` unless the blob is a persistent blob of the author already on this node (a decoy, `version 0`, has no blob, D90; a pre-0.9.0 node answers `INVALID` and the phone retries next session) |
 | `install.publish{Record INSTALL}` | logged in (server 0.9.0, D89): the caller's account-signed `INSTALL` → `Empty`; the session that publishes a newer install is that install (D56). A pre-0.9.0 node answers INVALID "unknown method"; the phone retries after the next login |
 | `push.register{Record PUSH_TOKEN}` | `RecordRequest` with the signed `PUSH_TOKEN` (M5, D60; ≤ 30 per author per hour → `QUOTA`, D107); the app sends it after login only when its push state changed (token, `messages_off`, `withdrawn`), and at once when a switch in «Уведомления» changes while online (D94). A pre-M5 node answers INVALID "unknown method" (harmless) |
@@ -337,7 +352,8 @@ Inviter app                          Any node                     New user app
   (D103). **`BackupAuthResponse.candidates`** (field 10): for a username that ever clashed, `backup.auth` answers the
   `name#<8 hex>` forms of every account sharing it and no salt; the phone retries with each.
 * **`network.publish{Record}`** (`RecordRequest` → `Empty`, public): accepts network-signed `REVOCATION` and
-  `INVITE_RIGHTS` (used by `otter-admin user revoke / invite-rights`).
+  `INVITE_RIGHTS` (used by `otter-admin user revoke / invite-rights`), and since server 0.10.0 `REKEY` and an
+  `INVITE` authored by the network key (`otter-admin user rekey`, D111). Idempotent.
 * **`admin.users{AdminRequest}`** (→ `RecordBatch`, public): `AdminRequest{ts_ms, signature}`, Ed25519 by the network
   key over the admin auth message (node_id, hello nonce, ts_ms); answers the node's verified member list
   (`otter-admin user list`).
@@ -352,10 +368,27 @@ Inviter app                          Any node                     New user app
    granted connection → decrypt → verify `BACKUP_META`/`BLOB_META` signatures, blob key, salt and profile against the
    decrypted seed's account key; any failure → «Копия повреждена», nothing written (D87). Later backups continue at
    version `max(restored version, now ms)`. Words-only restore takes only a directory entry that passes the sync
-   verification for the derived account key, highest `version` (D88).
+   verification for the derived account key, highest `version` (D88). Password restore and «Добавить историю» talk
+   only to nodes without `no_backups`: directly, or through a `no_backups` node's restore tunnel (below, D114).
 3. After login the phone publishes its signed `INSTALL` (`install.publish`, D89), uploads fresh `PREKEYS` with the new
    `installed_ms` (D52), pulls the directory and sends `SessionReset` to every contact (D53). The old install is cut off
    (D56) and sees the newer `INSTALL` on its next login.
+
+### Nodes without backups and the restore tunnel (M9.3, D113, D114)
+* **`NodeInfo.no_backups`** (manifest field 7; `otter-admin node set-no-backups --label L [--off]`): the node keeps no
+  backups at rest. It answers `backup.auth` / `backup.fetch` with `UNAVAILABLE`, receives no `BACKUP_META` or persistent
+  `BLOB_META` from peers, and hands what phones upload to it to the other nodes (peer frames `PeerHoldsQuery` /
+  `PeerHolds`, [03](03-mesh-replication.md) "Backup handoff").
+* **Restore tunnel**: a `no_backups` node serves `<wss path>/tunnel?to=<hex node id>` on its own WSS endpoint. The
+  phone opens a WebSocket there (pinned to the relay as usual) and sends the bytes of a **second TLS connection to the
+  target node** as binary messages (≤ 32 KiB each; the app sends 16 KiB); the target's TLS server terminates it with
+  its normal WSS certificate, which the phone pins, and the usual client protocol runs inside. Answers: `404` unless
+  the relay is `no_backups` and the target is another known manifest node without `no_backups`; `503` when the relay
+  has no live peer session with the target; `429` past 4 tunnels per source (IPv4 address, IPv6 /64) or 32 per node.
+  The node-to-node half is in [03](03-mesh-replication.md) "Restore tunnel".
+* Candidates (`Endpoints.restoreCandidates`): the nodes without `no_backups` directly, then each of their pinned,
+  non-CDN WSS endpoints through each `no_backups` node. A direct attempt that fails with a network error (e.g. a
+  frozen link from inside Russia, D132) or `UNAVAILABLE` is retried once over the tunnels only.
 
 ### Send 1:1
 1. If no session: `prekeys.fetch` → libsignal builds session (PQXDH).
