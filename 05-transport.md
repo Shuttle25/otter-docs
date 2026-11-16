@@ -95,12 +95,15 @@ message Manifest {
   repeated NodeInfo nodes = 4;
   uint32 min_app_version  = 5;
   repeated bytes news_keys = 6;      // Ed25519 keys allowed to sign announcements (M6.5, D65)
+  int64  sig_v1_until_ms = 7;        // v1 record signatures valid only for created_ms < this; 0 = for all (M9.3, D109)
+  repeated bytes founding_members = 8; // accounts admitted without an invite chain (M9.2, D100)
 }
 message NodeInfo {
   bytes node_id = 1; bytes node_pub = 2; string label = 3;
   bool  push_capable = 4;            // has an FCM key and can reach Google (otter-admin node set-push, D58)
   repeated Endpoint endpoints = 5;
   bool  dial_out_only = 6;           // cannot accept inbound (e.g. NAT): dials peers, is never dialed (M7, D71; not for Russia, D132)
+  bool  no_backups = 7;              // keeps no backups at rest, serves the restore tunnel (M9.3, D113, D114)
 }
 message Endpoint {
   enum Kind { WSS = 0; REALITY = 1; WS_PLAIN = 2; }  // WS_PLAIN: development only, refused by release apps
