@@ -445,7 +445,7 @@
     {
       "id": 49,
       "subject": "Task 49: Release server 0.9.1 + app 0.9.1 (M9.2) and rollout (each step asked first)",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** M9.2 (Tasks 30–48) merged after the owner's OK; every node on 0.9.1; phones on 0.9.1.\n\n**Findings closed:** none new (ships C2, C4, C5, C6, C8, C9, C10, C12, limit 3, M8 review)\n\n**Verify:** `deploy/status.sh` → every node `0.9.1`, health ok; on a node (asked first)\n\nSee plan section 'Task 49: Release server 0.9.1 + app 0.9.1 (M9.2) and rollout (each step asked first)' in 2026-11-14-m9-security-hardening.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"cmd/otter-node/main.go:331,401\", \"core/network\", \"core/network/build.gradle.kts\", \"deploy/status.sh\", \"docs/00-decisions.md\", \"docs/03-mesh-replication.md\", \"docs/04-security.md\", \"docs/09-roadmap.md\", \"internal/admin/manifest.go:50\", \"internal/records/sign.go:12-17\", \"internal/replication/session.go\", \"internal/service/register.go:51-56\", \"internal/service/service.go:167\", \"internal/store/apply.go\", \"internal/store/typed.go:364-409\", \"internal/transport/wss/server.go\", \"otter-android/app/build.gradle.kts:35\", \"otter-android/core/crypto/src/test/.../VectorsTest.kt:24\", \"otter-android/scripts/sync-proto.sh\", \"otter-server/dist/news/0.9.1.md\", \"otter-server/internal/keys/ids.go:9\", \"otter-server/proto/otter/v1/\", \"scripts/secrets-check.sh\"], \"verifyCommand\": \"`deploy/status.sh` → every node `0.9.1`, health ok; on a node (asked first)\", \"acceptanceCriteria\": [\"`otter-server`: `make check` → ok; `go test ./internal/meshsim/ -count=3 -race` → ok; `scripts_test.sh` in a\", \"`otter-android`: `./gradlew test lintDebug assembleRelease` → BUILD SUCCESSFUL; `apksigner verify\", \"`scripts/secrets-check.sh` → `secrets check: ok` in all three repos.\", \"Owner said \\\"merge\\\" → `git merge --no-ff m9-2-membership` in each repo, pushed.\", \"Every node runs 0.9.1 (`deploy/status.sh`), migrations 0012–0014 (or their renumbered names) applied, janitor\"]}\n```",
       "blockedBy": [
         30,
@@ -709,5 +709,5 @@
       ]
     }
   ],
-  "lastUpdated": "2026-11-15T23:43:57.403630+00:00"
+  "lastUpdated": "2026-11-16T00:15:24.313723+00:00"
 }
