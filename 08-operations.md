@@ -49,7 +49,7 @@ otter-admin invite bootstrap                # first user's invite (QR in termina
                                             # the signed INVITE, M9.2 — importing it on a node is optional)
 otter-admin user list | revoke | invite-rights | found   # M9.2 members, see "Members" below
 otter-admin user rekey NAME --old CODE | --new CODE      # M9.3 lost phone, see "Lost phone" below
-otter-admin status --via <node>             # peers, lag, storage, users
+deploy/status.sh                            # every node: version, health (otter-node status), netlog
 ```
 
 ## Members (M9.2, D99–D101)
