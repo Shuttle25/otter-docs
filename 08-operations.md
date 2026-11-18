@@ -6,7 +6,7 @@
 |-------|-------------------|--------------|
 | 1 | One VPS (or home server) | Fully working messenger; no redundancy |
 | 2 | Two hostings in different countries/providers | Survives one hosting outage; two independent IPs to reach |
-| 3 | E.g. 1 domestic (inside restricted network) + 2 foreign on different providers | Survives outages and most blocking scenarios: domestic node stays reachable for clients and relays to foreign nodes over REALITY |
+| 3 | E.g. 1 domestic (inside restricted network) + 2 foreign on different providers | Survives outages and most blocking scenarios: domestic node stays reachable for clients; the foreign nodes dial it (D132). Step by step: [11](11-deployment.md) §14 |
 
 Minimum per node: 1 vCPU, 512 MB RAM, 10 GB disk (more for media), Linux amd64/arm64.
 
@@ -192,6 +192,47 @@ from its peers, so nothing needs to be configured.
 
 ## Monitoring
 
-* `otter-node status` and `/metrics` (localhost).
-* Alert ideas: peer lag > 10 min, disk > 80 %, no client sessions for > 1 h during daytime,
-  push failures.
+Three ways to look at the same numbers (M9.4, D119; nodes 0.10.1+). The running node writes
+`/var/lib/otter/status.json` (0600) every 15 s and serves Prometheus text on **`127.0.0.1:9477/metrics`** only
+(`[metrics] listen`, `"off"` disables; a public address is refused at start, so the port is never in a firewall).
+
+* **`deploy/status.sh`** (admin machine, all nodes, read-only): the node table, the last connectivity log lines, then
+  a health block with one line per node and its problems; exit 1 on any problem:
+
+  ```
+  health (otter-node status; "!" = needs attention):
+    node-a  peers=2/2 lag=0s backlog=0 disk=ok free=31GiB sessions=3 push=12/0 turn=0 rejected=0
+    node-c  peers=1/2 lag=14m backlog=37 disk=ok free=8.2GiB sessions=1 push=0/0 turn=0 rejected=4
+    node-c  ! peer node-b down for 14m
+    node-c  ! peer node-b lag 14m (37 records)
+  ```
+
+  `peers` = replication sessions up / other nodes (a session counts whichever side dialed it); `lag` and `backlog` =
+  age and count of our records the peers have not confirmed yet (only records a peer would accept, so a `no_backups`
+  peer shows no false lag); `push` = sent/failed since the start; `turn` = live TURN allocations; `rejected` = requests
+  refused by a limit since the start. Nodes older than 0.10.1 get a note instead of a line.
+* **`otter-node status --config /etc/otter/node.toml [--line|--json]`** on a server (root or `otter`; reads only
+  `status.json`): exit 0 healthy, 2 problems, 1 no status. Without a flag it prints the version and uptime, one line per
+  peer (`up`/`down`, backlog, lag, ping failures), disk, push and TURN.
+* **`/metrics`** for a scraper of your own, over SSH:
+
+  ```bash
+  ssh root@HOST 'curl -s 127.0.0.1:9477/metrics' | grep '^otter_peer_lag'
+  # otter_peer_lag_seconds{peer="node-b"} 0
+  ```
+
+  Metrics: `otter_up`, `otter_build_info{version}`, `otter_start_time_seconds`, `otter_client_sessions`, `otter_users`,
+  `otter_records`, `otter_oplog_seq`, `otter_blob_bytes`; per peer `otter_peer_connected`, `otter_peer_caught_up`,
+  `otter_peer_backlog_records` (-1 = unknown), `otter_peer_lag_seconds`, `otter_peer_ping_failures_total`;
+  `otter_disk_free_bytes`, `otter_disk_total_bytes`, `otter_disk_floor_bytes`, `otter_disk_low`;
+  `otter_push_sent_total`, `otter_push_failed_total`, `otter_push_unregistered_total`; `otter_turn_enabled`,
+  `otter_turn_allocations`, `otter_turn_relayed_bytes_total`; `otter_rejected_total{kind}` with kind `conn_ip`,
+  `conn_rate`, `req_rate`, `public_rate`, `user_rate`, `pending`, `disk` (D116–D118).
+
+**Problems** (the `! ` lines, D119): status older than 60 s (node not running); a peer with no session in either
+direction for more than 10 minutes (or never, 10 minutes after the start); a peer lag over 10 minutes; disk level not
+`ok` (below `[limits] disk_floor`, default 1 GiB); 3 or more push failures and none sent since the start. What each one
+means and what to do: [11](11-deployment.md) §7. A hostile peer can lie in its acks; that only changes our numbers.
+
+Other alert ideas for your own scraper: no client sessions for more than an hour during the day; `otter_rejected_total`
+growing fast (someone hammering a node, or a phone stuck in a retry loop).

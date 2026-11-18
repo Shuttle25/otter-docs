@@ -28,7 +28,7 @@ Code: [otter-server](https://github.com/Shuttle25/otter-server) (Go node + admin
 | 08 | [Operations](08-operations.md) | Deploying 1/2/3 nodes, admin CLI, upgrades, monitoring |
 | 09 | [Roadmap](09-roadmap.md) | V1 milestones (calls M8/M8.5), V2 (group calls, multi-device), open questions |
 | 10 | [Design guidelines](10-otter-design-guidelines.md) | Android UI: tokens, typography, screens, states, copy (RU) — normative for UI |
-| 11 | [Server deployment](11-deployment.md) | Build, bundle, install, TLS, systemd, upgrades, backups, scripts |
+| 11 | [Server deployment](11-deployment.md) | Build, bundle, install, TLS, systemd, upgrades, backups, scripts, security checklist (§8), three nodes from scratch (§14) |
 
 ## One-paragraph summary
 

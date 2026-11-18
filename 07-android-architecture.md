@@ -48,7 +48,7 @@ android/
     conversation/              message list, composer, attachments, voice, receipts
     contacts/                  member directory, contact profile, safety-number verify
     groups/                    new group, group info (members, admins, rename, leave), add members (M3)
-    settings/                  settings, profile, edit name (M1.5), backup (M6), notifications (M5); later: node status
+    settings/                  settings, profile, edit name (M1.5), backup (M6), notifications (M5), app lock, network status, appearance, recovery phrase (M9.4)
     calls/                     WebRtcEngine (MediaEngine impl), call screen + view model, audio routing (M8)
 ```
 
@@ -261,22 +261,25 @@ Visual design, tokens, copy and behaviour: **[10 — design guidelines](10-otter
    edit), "N участников", members with "админ", per-member admin actions in the anchored menu (and as accessibility
    actions), add members, leave (the last admin first picks a new admin). Removed members see the group read-only.
 6. **Invite someone**: shows QR + share-link, expiry.
-7. **Settings** (scrollable, sections per guide §10): profile, family, notifications (M5: current mode explained by
-   consequences, «Показывать уведомления», «Пробуждение через Google», «Настройки Android»), appearance (system/light/dark), photos & storage (auto-download,
-   safe cache size), security (app lock, verify contact, block screenshots), backups,
-   recovery phrase (after device auth), connection (human status; node details inside), about. The very bottom shows
-   «Otter 0.5.0 (abc1234)» (`versionName` + short git hash, D63).
+7. **Settings** (scrollable, sections in the order of guide §10, D124): Профиль; Семья («Пригласить в семью»);
+   Уведомления (M5: current mode explained by consequences, «Показывать уведомления», «Пробуждение через Google»,
+   «Настройки Android»); Оформление (Как на устройстве / Светлая / Тёмная); Фото и память (auto-download, safe cache
+   size); Безопасность («Блокировка приложения», «Запрет скриншотов», «Резервная копия», «Фраза восстановления»);
+   Подключение (status row → «Состояние сети» with the nodes and «Журнал подключений» inside, «Звонки только через
+   сервер», full-screen-call row when Android 14+ blocks it). The very bottom shows «Otter 0.5.0 (abc1234)»
+   (`versionName` + short git hash, D63). Verifying a contact stays in the contact's profile.
 
 Group receipts aggregation: see D23 in [00](00-decisions.md). Media/local-copy rules: D24.
 
 ## Security on device
 
 * SQLCipher DB key: random 32 bytes, wrapped with an AES key in Android Keystore
-  (StrongBox when available); optional app lock (biometric/PIN).
-* Seed stored encrypted in DB; re-displaying phrase requires device credential.
+  (StrongBox when available); optional app lock (PIN/biometric, D121, see below).
+* Seed stored encrypted in DB; re-displaying the phrase («Фраза восстановления», D124) requires the phone's screen lock
+  or the app-lock PIN.
 * Photos on disk are the encrypted originals (`filesDir/media/*.otb`, Tink streaming AEAD, key in the DB) and are
   decoded into memory only; plaintext lands on storage only when the user saves to the gallery (D46).
-* `FLAG_SECURE` optional (setting) to block screenshots. Always on (D98, C22) while a screen shows or takes the recovery
+* `FLAG_SECURE` optional («Запрет скриншотов», D121) to block screenshots app-wide. Always on (D98, C22) while a screen shows or takes the recovery
   words or a backup password (phrase, phrase check, restore by words / password / history, backup password form):
   `SecureWindow()` in `core/ui`, reference-counted per window so the next secure screen keeps the flag when the
   previous one is disposed after it.
@@ -406,6 +409,34 @@ No Room schema change (still v8): `contacts.revoked` existed already.
   uses these candidates for password restore and «Добавить историю» only; a direct attempt that fails with an
   `IOException` (a freeze from inside Russia, D132) or `UNAVAILABLE` is retried once over the tunnels only; wrong
   passwords and bad backups end at once. A `no_backups` node's `UNAVAILABLE` shows as a network error.
+
+### App lock, network status, settings (M9.4, D121, D123, D124; app 0.10.1 (14))
+* **`AppLock`** (`core/data/security`, singleton): `initialized`, `enabled`, `locked` as StateFlows; `init()` loads the
+  state once (idempotent), `onBackground()` / `onForeground()` apply the timeout («Сразу», 1 min default, 5, 30 min),
+  `lockNow()`; `tryPin` / `checkPin` / `changePin` → `PinResult.Ok | Wrong(triesLeft) | Wait(untilMs)` (5 free tries,
+  then 30 s doubling up to 15 min, persisted); `unlockedByDevice()` after a `BIOMETRIC_STRONG` prompt; `enable(pin,
+  biometric)` / `disable()`. The PIN (4–8 digits) is stored as salt ‖ Argon2id(m 16 MiB, t 2, p 1) in the encrypted
+  settings table (`PinHash`, `core/crypto`); every Argon2 call runs off the main thread.
+* **Gate:** `MainActivity` is a `FragmentActivity` (BiometricPrompt) and shows nothing until `initialized`, then the
+  lock screen (`lock/LockScreen.kt`, `PinPad`/`PinDots`/`PinEntry` in `core/ui`) while `locked`, before every other
+  screen; the chat screens keep their state under it. «Забыли PIN?» → the phone's screen lock (device credential)
+  turns the app lock off. Calls: `CallActivity` rings and answers without the PIN and reaches no chat.
+* **While the lock is on:** `MessageNotifier` waits for `init()` (a cold start by Firebase) and posts only «Otter /
+  Новое сообщение» without «Ответить» (news are unchanged; call notifications keep the caller's name); notifications
+  already shown are removed when the lock is turned on (`hideAll`). Recents: API 33+ `setRecentsScreenshotEnabled(false)`;
+  Android 12 and older use `FLAG_SECURE` while the lock is on (screenshots blocked there too). «Запрет скриншотов»
+  holds the counted `SecureWindow(enabled = true)` for the whole window, independent of the lock.
+* **Settings rows:** «Блокировка приложения» (`settings/lock`: enable with a PIN twice, biometric switch, timeout,
+  change PIN, turn off; turning it on without a phone screen lock warns and offers «Всё равно включить»),
+  «Запрет скриншотов» switch, «Оформление» (`settings/appearance`, `Settings.observeThemeMode()` / `setThemeMode`: 0 system / 1 light / 2 dark,
+  applied at once; `applySystemBars` keeps the status-bar icons readable), «Фраза восстановления» (`settings/phrase`:
+  device credential or the app-lock PIN, `FLAG_SECURE`, the words only in the screen's memory, cleared on `ON_STOP`).
+* **«Состояние сети»** (`settings/network`, `NetworkStatus` in `core/data/network`): current state, the phone's network
+  and operator, every manifest node with each endpoint as `scheme:port` («· CDN» for `Candidate.viaCdn`; IPs masked,
+  `maskIps`) and its last success / failure, RTT, failures in a row and demotion (D73), the notification mode with the
+  last push wake-up, battery optimisation with «Не ограничивать Otter»
+  (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) and «Автозапуск и фон» (app details page), and «Журнал подключений».
+  It only reads what the phone has; no keep-alive or foreground service (phones are woken by Firebase only).
 
 ### Photos (M4, D44–D48)
 `core/data/media`: `PhotoPrep` (JPEG ≤ 2560 px, EXIF orientation applied, no metadata, 64 px thumbnail),
