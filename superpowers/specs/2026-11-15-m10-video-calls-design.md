@@ -2,7 +2,7 @@
 
 Approved by the owner 2026-11-15 (brainstorm). Was "M8.5" in the roadmap; renamed **M10** because it is built **after all
 of M9** (owner). Extends the M8 audio calls (`2026-11-13-m8-audio-calls-design.md`, D76–D81); everything not mentioned
-here stays as in M8. Versions: **app 0.11.0, server 0.11.0** (after M9.4's 0.10.1).
+here stays as in M8. Versions: **app 0.12.0, server 0.12.0** (after M9.5's 0.11.0).
 
 ## Owner decisions
 
@@ -94,7 +94,7 @@ Rejected: simulcast/SVC (made for group calls; wastes uplink in 1:1), our own qu
 - **Per-call bitrate logging:** when an allocation ends, the node logs `turn allocation closed` with the duration, the
   average and peak kbit/s in each direction, and whether the rate limiter dropped packets. The log has no user names; it
   uses the TURN user id, as the M8 logs do.
-- Rollout: the owner runs the commands. Install 0.11.0 on every node first, then set `relay_kbps = 2000` (or rely on the
+- Rollout: the owner runs the commands. Install 0.12.0 on every node first, then set `relay_kbps = 2000` (or rely on the
   new default), then release the APK.
 
 ## Testing and acceptance
@@ -112,7 +112,7 @@ Rejected: simulcast/SVC (made for group calls; wastes uplink in 1:1), our own qu
     `FileVideoCapturer` fallback), and the other side receives frames;
   - after `setTrack(null)` no video RTP is counted.
 - **Server:** config default test, and a bitrate log line in the TURN meshsim test.
-- **Owner manual test (both phones on 0.11.0, relay only):**
+- **Owner manual test (both phones on 0.12.0, relay only):**
   1. 5-minute video call over the relays: camera on/off, switch, PiP, saver.
   2. A throttled link (a hotspot limited to about 200 kbit/s) turns into audio with the notice instead of dropping, and
      video comes back when the limit is removed.

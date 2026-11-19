@@ -212,7 +212,8 @@ Layers, from pure to Android:
 
 ```
 account(user_id, username, display_name, seed_enc, created)
-contacts(user_id, username, display_name, account_pub, identity_pub, verified, revoked, avatar_path, reset_ms)
+contacts(user_id, username, display_name, account_pub, identity_pub, verified, revoked, avatar_path, reset_ms,
+         listed, related)                                                       listed/related: M9.5 (DB v10, D136)
 rekeys(old_user_id, new_user_id, created_ms, record_id, revoked_ms, applied_ms)     verified REKEYs (M9.3, DB v9)
 conversations(id, type{DIRECT|GROUP}, peer_user_id|group_id, title, last_message_id, unread, muted, pinned)
 groups(group_id, name, family, version, state_signed, prev_state, i_am_member, created_by)
@@ -253,7 +254,8 @@ Visual design, tokens, copy and behaviour: **[10 — design guidelines](10-otter
    (reply, copy, delete-for-me; photo: reply, save to gallery, delete-for-me), "Message info"
    with per-recipient group delivery. **No** file picker, voice, reactions, typing in V1. Since M8 a 1:1 chat has a
    call button in the top bar and call lines in the message list (D80); there is no «Звонки» tab.
-4. **Family (members directory)**: in the new-chat picker and in Settings → Семья; profile →
+4. **Family (members directory)**: in the new-chat picker and in Settings → Семья; since M9.5 only the catalog
+   (D136, see "Member privacy" below), with a search field and «Найти @name»; profile →
    "Message", "Verify safety number"; "Invite" (every member may invite; when the admin withdrew the right with
    `INVITE_RIGHTS`, the invite screen says so, D101).
 5. **New group / Group info** (`feature:groups`): "Новая группа" is the first row of the new-chat picker (name,
@@ -437,6 +439,40 @@ No Room schema change (still v8): `contacts.revoked` existed already.
   last push wake-up, battery optimisation with «Не ограничивать Otter»
   (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) and «Автозапуск и фон» (app details page), and «Журнал подключений».
   It only reads what the phone has; no keep-alive or foreground service (phones are woken by Firebase only).
+
+### Member privacy and network code (M9.5, D135–D139; app 0.11.0 (15))
+* **Directory sync (D135, D137):** `DirectorySync.sync` calls `NodeApi.directoryList()` (on a node before 0.11.0
+  "unknown method" → `directory.sync` from then on), then `directoryGet` for every 1:1 chat partner and group member
+  plus the newer accounts of re-keyed ones (sent in parts of 256). `DirectorySync.fetch(api, ids)` gets unknown ids
+  with their ancestry: `MailboxReceiver` fetches all unknown senders of a batch in one request, `GroupApplier` fetches
+  an unknown signer and unknown members, `Outbox` fetches an unknown 1:1 recipient once before failing it with
+  "unknown contact". Every answer goes through the normal admission (D104).
+* **Catalog (D136):** each contact stores the signed `listed` of its entry and `related` (my direct inviter, from
+  `Settings.ownInvite()`, or my invitees, from the verified invite edges, across re-keys both ways; sticky).
+  `ContactDao.observeCatalog()` = not revoked and (`listed` or `related` or a 1:1 conversation or a group membership);
+  `ContactRepository.observeContacts()` («Написать») and the group pickers use it. Ancestry entries stay in the store
+  (names, safety numbers) but out of the lists. Room v10 adds the two columns (default 0).
+* **«Показывать меня в каталоге сети»:** `Settings.catalogListed` (off by default); `ProfileRepository.setListed`
+  publishes a new own entry with `listed` like a name edit (pending, offline-safe); `DirectorySync.applyOwn` takes the
+  value back from an own entry at least as new as ours when nothing is pending (restore, another install).
+* **`UsernameLookup`** (`core/data/directory`): normalises `@Name` → `name`, accepts `name` or `name#<8 hex>`. Answers
+  from the store only when exactly one live account (or the phone's own) holds a plain name, or when a tagged name
+  matches a stored account; otherwise asks the node (`directory.lookup`). The answer is applied through
+  `DirectorySync.apply` and must then hold a live entry with that username (for a plain name: the only one in the
+  answer, or the one the phone did not have before), else `NotFound`. Results: `Found`, `Self` («Это вы»), `NotFound`
+  («Пользователь не найден»), `Limited` («Слишком много поисков, попробуйте позже»), `OldNode` («Сервер устарел,
+  попробуйте позже»), `Offline` («Нет подключения»). A found account is stored but joins the catalog only once a chat
+  exists. Known limit: a phone that stores only the losing account of a clash answers the plain name with it.
+* **`PersonFinder`** (interface; `RealPersonFinder` = `UsernameLookup` + `MessageRepository`): `find(typed)` →
+  `FoundPerson(contact, hasChat)` plus the result, `chatWith(userId)`; a fake in ViewModel tests. «Написать»
+  (`NewChatViewModel`) and the conversation (`ConversationViewModel`, `@username` links from `UsernameLinks`) use it
+  and show `PersonCard` (`core/ui`: avatar, name, `@username`, «Написать» or «Открыть чат») in a bottom sheet.
+* **Network code and versions (D139):** `NetworkCode.of(network_pub)` (`core/crypto`, shared vector) on the onboarding
+  profile step and as the first row of «Состояние сети». `SyncEngine` stores `LoginResponse.server_version` per manifest
+  label (`Settings.setNodeVersion`, looked up with `ManifestUpdater.nodeLabel`); «Состояние сети» shows «Версия …»
+  under each node. `ManifestUpdater` returns `FOREIGN` for a manifest validly signed by another network's key
+  (`ManifestVerifier.foreignNetwork`), from `checkAfterLogin` or a `manifest` event; `SyncEngine.networkChanged`
+  (memory only) shows «Сеть изменилась» over the app until «Понятно» (`dismissNetworkChanged`) for this app run.
 
 ### Photos (M4, D44–D48)
 `core/data/media`: `PhotoPrep` (JPEG ≤ 2560 px, EXIF orientation applied, no metadata, 64 px thumbnail),

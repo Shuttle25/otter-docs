@@ -54,7 +54,7 @@ message RecordBody {
 
 | Type | Author | Payload | Notes |
 |------|--------|---------|-------|
-| `DIRECTORY_ENTRY` | user | user_id, username, display_name, account_pub, identity_pub, identity_sig, version, can_invite (ignored since M9.2, D101), registered_ms, invite_record (10), invite_proof (11) | Latest `version` wins; `registered_ms`, `invite_record` and `invite_proof` = first registration, copied into later versions (D40, D100); a new account is admitted only with a valid invite chain or as a founding member, and its username rank is fixed then (D103) |
+| `DIRECTORY_ENTRY` | user | user_id, username, display_name, account_pub, identity_pub, identity_sig, version, can_invite (ignored since M9.2, D101), registered_ms, invite_record (10), invite_proof (11), listed (12, M9.5: «Показывать меня в каталоге сети», signed by the account, default off, D136) | Latest `version` wins; `registered_ms`, `invite_record` and `invite_proof` = first registration, copied into later versions (D40, D100); a new account is admitted only with a valid invite chain or as a founding member, and its username rank is fixed then (D103) |
 | `PREKEYS` | user | signed prekey, Kyber last-resort prekey, list of one-time EC + Kyber prekeys **each tagged with an owning node_id**, `installed_ms` (M6, D52; 0 before) | See §5. A newer `installed_ms` raises the device's install on the node like a newer `INSTALL`; 0.9.0+ phones decide "replaced" only from `INSTALL` (D89). ≤ 200 unconsumed one-time keys per (user, device, owner node); superseded records compacted (M9.2, D107) |
 | `INVITE` | user (or network) | invite_id = SHA-256(secret), expires, `redeem_pub` (M9.2, D100) | Lifetime `created_ms` → `expires_ms` ≤ 30 days; ≤ 50 unexpired per author, ranked by (created_ms, record key) (a local 51st → `QUOTA`); deleted 1 day after expiry (M9.2, D107) |
 | `INVITE_USED` | user (new) | invite_id, new user_id | |
@@ -70,7 +70,7 @@ message RecordBody {
 | `ANNOUNCEMENT_DELETED` (type 16) | news key | `AnnouncementDeleted{target}` (record key of the announcement) | Kept forever; wins over an announcement that arrives later (D66) |
 | `MANIFEST` | network | see [05](05-transport.md) | Highest version wins |
 | `REVOCATION` | network | user_id, reason | Applied on accept and replication: no login/submit/invite/blob/TURN, sessions closed, mailbox/prekeys/push dropped; permanent, earliest `created_ms` kept (D99). Reason `rekey` = step 1 of a lost-phone re-key: phones keep the member in groups (keys rotated) up to 14 days waiting for the `REKEY` (D112) |
-| `REKEY` (type 18, M9.3) | network | `Rekey{old_user_id, new_user_id}` (16 bytes each, distinct); no expiry | Revokes `old` like a `REVOCATION` (reason `rekey`); of several REKEYs of one `old` the later `created_ms` wins, ties → lower record key; the winner's `new` is admitted without an invite chain, never disabled as a duplicate, inherits `min(own, old's)` clash rank and takes over the username; returned by `directory.sync`; phones move the direct chat to `new` (D111, D112) |
+| `REKEY` (type 18, M9.3) | network | `Rekey{old_user_id, new_user_id}` (16 bytes each, distinct); no expiry | Revokes `old` like a `REVOCATION` (reason `rekey`); of several REKEYs of one `old` the later `created_ms` wins, ties → lower record key; the winner's `new` is admitted without an invite chain, never disabled as a duplicate, inherits `min(own, old's)` clash rank and takes over the username; returned by `directory.sync` / `directory.list`; phones move the direct chat to `new` (D111, D112) |
 | `INVITE_RIGHTS` | network | user_id, can_invite, version | Highest version wins, ties → false; overrides the default rights (every non-revoked member may invite, D101) |
 
 **Record key** (dedup/storage key everywhere, incl. "record_id" in [03](03-mesh-replication.md)
@@ -183,7 +183,7 @@ message SenderKeyDistribution { bytes group_id = 1; bytes distribution_id = 2; b
 ```
 
 * **Signing:** `signature = Ed25519(signer's account key, "otter-group-v1" ‖ state)`; `signer` must equal
-  `id16(account key)`. An unknown signer triggers one directory sync; still unknown → the update is parked.
+  `id16(account key)`. An unknown signer is fetched once with `directory.get` (M9.5; before: one directory sync); still unknown → the update is parked.
 * **Distribution:** every change is sent 1:1 (`GroupUpdate`, urgent) to every member of the new state **and** every
   member the change removed. The author applies it locally first through the same rules (works offline).
 * **Acceptance rules** (`GroupRules`, pure; D33, D36, D37), after structural checks (sizes, uniqueness, admins ⊆ members,
@@ -247,6 +247,8 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
    body = zeros). `install` (field 3, server 0.9.0+) is the newest account-signed `INSTALL` record the node holds for the
    account. 0.9.0+ phones use only the signed `install` (checked with their own account key); the unsigned
    `registration_id`/`installed_ms` are kept for 0.8.x phones and ignored (logged) by 0.9.0 (D89).
+   `server_version` (field 4, server 0.11.0, D139) is the node's release, e.g. `0.11.0`; only a logged-in member sees
+   it (`hello` carries no version), and it is information only (a node can lie). Empty from an older node.
 
 ### Methods
 
@@ -255,7 +257,10 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 | `register` | DIRECTORY_ENTRY (with `invite_record` + `invite_proof`, M9.2; `invite_secret`, field 1, stays empty: the secret never leaves the phone) + INVITE_USED + PREKEYS → creates account; broken chain → `INVALID`, invite already redeemed here or expired → `CONFLICT`, inviter not replicated here yet → `RETRY_LATER` (D100, D102) |
 | `auth.login` | see above |
 | `manifest.get` | latest signed manifest |
-| `directory.sync{since}` | current entries of all users (revoked included) + every `REVOCATION` and `INVITE_RIGHTS` (M9.2, D99) + the winning `REKEY` of every replaced account (M9.3, D111), so phones verify them with the network key |
+| `directory.sync` | logged in. The caller's **visible set** (M9.5, D135; before 0.11.0 every entry): own entry, entries with signed `listed`, the direct inviter(s) and invitees (across re-keys), the invite ancestry, rival redemptions and older accounts of all of these; then every `REVOCATION` and `INVITE_RIGHTS` (M9.2, D99) and the winning `REKEY` of every replaced account (M9.3, D111), so phones verify them with the network key. Kept for apps up to 0.10.1 |
+| `directory.list` → `RecordBatch` | logged in (M9.5, D135): the same set as `directory.sync`; used by app 0.11.0+. A node before 0.11.0 answers INVALID "unknown method" and the app falls back to `directory.sync` |
+| `directory.get{user_ids}` → `RecordBatch` | logged in (M9.5, D137): the current entries of at most 256 known ids plus their ancestry; unknown ids are skipped; more than 256 → `INVALID`. Used for chat and group partners, unknown senders, group signers and members |
+| `directory.lookup{username}` → `RecordBatch` | logged in (M9.5, D137): one exact username (`name` or `name#<8 hex>`, any case, optional `@`) → that entry plus its ancestry; no such account, a revoked one or a malformed name → `NOT_FOUND`; a plain name in a clash finds the winner only (D40, D103). 30 per account per hour and 200 per day, failed lookups included → `QUOTA`. The phone checks that the answer holds a signed entry with that username |
 | `directory.update{record}` | newer version of the caller's own DIRECTORY_ENTRY (profile edit, D39): OK; UNAUTHORIZED (someone else's entry); INVALID (changed username, not a directory entry); CONFLICT (version not newer); RETRY_LATER (user not replicated here yet). Every session gets a `directory` event |
 | `prekeys.upload` / `prekeys.fetch{user,device}` | Signal prekey bundles (`prekeys.upload` ≤ 20 per author per hour → `QUOTA`, M9.2 D107) |
 | `msg.send{Record}` | submit ENVELOPE; response = stored (✓ "sent") |
@@ -279,7 +284,7 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 
 Events: `hello`, `envelopes` (mailbox delivery, a `RecordBatch` of at most 100 records and, from server 0.9.0, at most
 768 KiB of records, always at least one; D93), `manifest` (newer version available),
-`directory` (changes), `prekeys_low`, `news` (`Empty`: an announcement was accepted or dropped → re-fetch `news.list`, D67).
+`directory` (changes; `Empty`, sent to every logged-in session, D138: the phone re-reads its visible set and its partners by id), `prekeys_low`, `news` (`Empty`: an announcement was accepted or dropped → re-fetch `news.list`, D67).
 
 Status codes: 0 OK, 1 retry-later, 2 unauthorized, 3 invalid-signature, 4 quota, 5 not-found,
 6 revoked, 7 conflict (e.g. username taken), 9 unavailable (feature off on this node, e.g. TURN; M8).
@@ -356,7 +361,21 @@ Inviter app                          Any node                     New user app
   `INVITE` authored by the network key (`otter-admin user rekey`, D111). Idempotent.
 * **`admin.users{AdminRequest}`** (→ `RecordBatch`, public): `AdminRequest{ts_ms, signature}`, Ed25519 by the network
   key over the admin auth message (node_id, hello nonce, ts_ms); answers the node's verified member list
-  (`otter-admin user list`).
+  (`otter-admin user list`). It is not filtered by M9.5.
+
+#### Member privacy and network code (M9.5, D135–D139; server and app 0.11.0)
+* **Who gets which entries:** `directory.sync` / `directory.list` return the caller's visible set, `directory.get`
+  entries by id, `directory.lookup` one exact username (methods table above). Every answer also carries the invite
+  ancestry the phone needs to verify the chains (D104). Replication between nodes is unchanged.
+* **`DirectoryEntry.listed`** (field 12) is signed by the account, so a node cannot list a member who did not choose
+  it; the phone shows only signed `listed`, related, chat and group contacts (D136).
+* **Network code:** the first 8 bytes of `SHA-256("otter-network-code" ‖ network_pub)` as a big-endian integer,
+  mod 10^15, zero-padded, grouped `ddddd ddddd ddddd` (Go `netcode.Code`, Kotlin `NetworkCode.of`; shared vector
+  `testdata/vectors/network_code.json`).
+* **Compatibility:** apps up to 0.10.1 get the filtered set from `directory.sync` (no transition period) and skip
+  field 12 as an unknown field (the signature covers the body bytes). App 0.11.0 on a node before 0.11.0 falls back to
+  `directory.sync` (it then gets every entry and still shows only its catalog); `directory.lookup` there →
+  «Сервер устарел, попробуйте позже».
 
 ### Backup and restore (M6; D50–D56)
 1. Backup: the phone gzips a `BackupSnapshot` (client-only, `backup.proto`), encrypts it with Tink streaming AEAD
