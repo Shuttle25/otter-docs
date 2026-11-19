@@ -100,7 +100,7 @@
     {
       "id": 11,
       "subject": "Task 12: Docs, versions, full checks, owner test, merge, rollout",
-      "status": "in_progress",
+      "status": "completed",
       "description": "**Goal:** Docs match the code, both repos are green, the owner checks it on two phones, then merges and rolls out.\n\n**Verify:** the three commands above.\n\n```json:metadata\n{\"files\": [\"docs-m95/00-decisions.md\", \"docs-m95/02-protocol.md\", \"docs-m95/09-roadmap.md\", \"docs-m95/07-android-architecture.md\", \"docs-m95/10-otter-design-guidelines.md\", \"docs-m95/superpowers/specs/2026-11-15-m9-5-member-privacy-design.md\", \"docs-m95/superpowers/specs/2026-11-15-m10-video-calls-design.md\", \"otter-android-m95/app/build.gradle.kts:37\"], \"verifyCommand\": \"the three commands above.\", \"acceptanceCriteria\": [\"Server: `nice -n 15 ionice -c3 go test -race -p 4 ./...` all `ok`; `go vet ./...` clean; `scripts/secrets-check.sh` ok.\", \"App (after the server run has finished): `nice -n 15 ./gradlew test lintDebug assembleDebug assembleRelease` → `BUILD SUCCESSFUL`; `scripts/secrets-check.sh` ok.\", \"Docs: `scripts/secrets-check.sh` ok in `docs-m95`.\", \"Owner test passed and owner said \\\"merge\\\".\"]}\n```",
       "blockedBy": [
         3,
