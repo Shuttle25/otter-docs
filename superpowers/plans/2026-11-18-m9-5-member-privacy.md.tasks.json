@@ -4,13 +4,13 @@
     {
       "id": 0,
       "subject": "Task 1: Server protos, network code, `otter-admin network code`",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The wire format has `listed`, `server_version` and the two request messages; Go can compute the network code\n\n**Verify:** `cd otter-server-m95 && go test -p 4 ./internal/netcode/ ./cmd/otter-admin/ -run 'Code|NetworkCode'` → `ok` twice\n\n```json:metadata\n{\"files\": [\"otter-server-m95/proto/otter/v1/records.proto\", \"otter-server-m95/internal/netcode/netcode.go\", \"otter-server-m95/cmd/otter-admin/main.go\"], \"verifyCommand\": \"`cd otter-server-m95 && go test -p 4 ./internal/netcode/ ./cmd/otter-admin/ -run 'Code|NetworkCode'` → `ok` twice\", \"acceptanceCriteria\": [\"`DirectoryEntry.listed = 12`, `LoginResponse.server_version = 4`, `DirectoryGetRequest{repeated bytes user_ids = 1}`, `DirectoryLookupRequest{string username = 1}` exist and `make gen` is clean (buf lint passes).\", \"`netcode.Code` matches all three vectors.\", \"`otter-admin --dir D network code` prints `network code: ddddd ddddd ddddd` without asking for a passphrase.\"]}\n```"
     },
     {
       "id": 1,
       "subject": "Task 2: Server visible set (store relations, ancestry closure)",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** `Service.VisibleDirectory(ctx, user)` returns exactly the D135 set; `Service.Directory` stays complete.\n\n**Verify:** `go test -p 4 ./internal/store/ ./internal/service/ -run 'Visib|Relations'` → `ok` twice\n\n```json:metadata\n{\"files\": [\"otter-server-m95/internal/store/visibility.go\", \"otter-server-m95/internal/service/visibility.go\"], \"verifyCommand\": \"`go test -p 4 ./internal/store/ ./internal/service/ -run 'Visib|Relations'` → `ok` twice\", \"acceptanceCriteria\": [\"A invites B, B invites C, D is network-invited and unlisted, E is listed: A sees {A, B, E}; B sees {A, B, C, E}; C sees {B, C, E} **plus A as ancestry** (A is B's inviter); D sees {D, E}.\", \"Every answer contains all REVOCATION, INVITE_RIGHTS and REKEY records, as `Directory` does.\", \"A re-keyed account keeps its relations: if B re-keys to B2, A sees B2 (and the revoked B).\", \"An unlisted member never appears for an unrelated caller unless as ancestry of someone the caller may see.\", \"`Directory(ctx)` output is unchanged (admin list).\"]}\n```",
       "blockedBy": [
         0
@@ -19,7 +19,7 @@
     {
       "id": 2,
       "subject": "Task 3: Server `DirectoryGet` and `LookupUsername`",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Fetch entries by id and one exact username, with ancestry, under the lookup limit.\n\n**Verify:** `go test -p 4 ./internal/service/ -run 'DirectoryGet|Lookup'` → `ok`\n\n```json:metadata\n{\"files\": [\"otter-server-m95/internal/service/visibility.go\", \"otter-server-m95/internal/service/visibility_test.go\"], \"verifyCommand\": \"`go test -p 4 ./internal/service/ -run 'DirectoryGet|Lookup'` → `ok`\", \"acceptanceCriteria\": [\"`DirectoryGet` with > 256 ids → `ErrInvalid`; with known ids → their entries plus ancestry; unknown ids are skipped.\", \"`LookupUsername(\\\"@Boris\\\")` finds `boris` (case, `@`, spaces ignored); `name#tag` resolves through `ResolveUsername`; unknown or revoked → `ErrNotFound`.\", \"The 31st lookup within an hour → `ErrQuota`, failed lookups count; the day limit is 200.\"]}\n```",
       "blockedBy": [
         1
@@ -28,7 +28,7 @@
     {
       "id": 3,
       "subject": "Task 4: Server gateway methods and the version in the login answer",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** `directory.sync`/`directory.list` filtered, `directory.get`, `directory.lookup` callable, `LoginResponse.server_version` set.\n\n**Verify:** `go test -p 4 ./internal/gateway/ -run 'Privacy|LoginVersion'` → `ok`\n\n```json:metadata\n{\"files\": [\"otter-server-m95/internal/gateway/methods.go\", \"otter-server-m95/internal/gateway/privacy_test.go\"], \"verifyCommand\": \"`go test -p 4 ./internal/gateway/ -run 'Privacy|LoginVersion'` → `ok`\", \"acceptanceCriteria\": [\"Over the wire, `directory.sync` and `directory.list` return the same filtered set; `admin.users` still returns all.\", \"`directory.lookup` for an unknown name → `STATUS_NOT_FOUND`; the 31st → `STATUS_QUOTA`.\", \"`LoginResponse.server_version` equals the binary's version; `hello` carries no version.\", \"`directory.lookup` is in the per-user write bucket (`userWrites`) as a second brake.\"]}\n```",
       "blockedBy": [
         2
@@ -37,7 +37,7 @@
     {
       "id": 4,
       "subject": "Task 5: App protos, `NodeApi` calls and old-node fallback, fake node",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The app can call `directory.list/get/lookup`, falls back on an old node, and tests can serve all of it.\n\n**Verify:** `./gradlew :core:network:testDebugUnitTest --tests '*DirectoryFallback*' :core:data:testDebugUnitTest --tests '*DirectorySync*'` → `BUILD SUCCESSFUL`\n\n```json:metadata\n{\"files\": [\"otter-android-m95/core/proto/src/main/proto/otter/v1/*.proto\", \"otter-android-m95/core/network/src/main/kotlin/app/ottermsg/core/network/NodeApi.kt\", \"otter-android-m95/core/data/src/test/kotlin/app/ottermsg/core/data/FakeNode.kt\", \"otter-android-m95/core/network/src/test/kotlin/app/ottermsg/core/network/DirectoryFallbackTest.kt\"], \"verifyCommand\": \"`./gradlew :core:network:testDebugUnitTest --tests '*DirectoryFallback*' :core:data:testDebugUnitTest --tests '*DirectorySync*'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`NodeApi` has `directoryList()`, `directoryGet(ids)`, `directoryLookup(username)` with defaults that fall back to `directory()` (list, get) or throw `OldNodeException` (lookup).\", \"`RemoteNodeApi.directoryList()` on a node that answers `STATUS_INVALID \\\"unknown method …\\\"` calls `directory.sync` instead, and remembers that for the session.\", \"`directoryLookup` maps `STATUS_NOT_FOUND` → `null`, `STATUS_QUOTA` → `LookupLimitException`.\", \"`FakeNode` serves the three methods with the server's rules (visible set = own + listed + direct relation + ancestry).\"]}\n```",
       "blockedBy": [
         0
@@ -46,7 +46,7 @@
     {
       "id": 5,
       "subject": "Task 6: App contacts catalog (DB v10, filtered sync, fetch by id)",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The phone stores `listed` and `related` per contact, syncs the visible set, refreshes chat/group partners\n\n**Verify:** `./gradlew :core:database:testDebugUnitTest :core:data:testDebugUnitTest --tests '*Catalog*' --tests '*DirectorySync*' --tests '*Mailbox*'` → `BUILD SUCCESSFUL`\n\n```json:metadata\n{\"files\": [\"otter-android-m95/core/database/src/main/kotlin/app/ottermsg/core/database/entity/ContactEntity.kt\", \"otter-android-m95/core/data/src/main/kotlin/app/ottermsg/core/data/directory/DirectorySync.kt\", \"otter-android-m95/feature/chats/.../NewChatViewModel.kt\", \"otter-android-m95/core/data/src/test/kotlin/app/ottermsg/core/data/CatalogTest.kt\"], \"verifyCommand\": \"`./gradlew :core:database:testDebugUnitTest :core:data:testDebugUnitTest --tests '*Catalog*' --tests '*DirectorySync*' --tests '*Mailbox*'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`contacts` has `listed` and `related` (default 0); `ContactDao.observeCatalog()` returns non-revoked contacts that are listed, related, a 1:1 peer (`conversations.peer_user_id`) or a group member (`group_members.user_id`).\", \"**Hostile node:** an entry served by the node whose signed `listed` is false and that has no relation stays out of the catalog (it is stored, for chain checks).\", \"Ancestry entries (inviter of my inviter) are stored but not in the catalog.\", \"A message from a sender not in the store triggers `directoryGet([sender])`, not a full sync.\", \"`DirectorySync.sync` calls `directoryList()` then `directoryGet(peers ∪ group members)`.\", \"The inviter placeholder from the invite link (entryVersion 0) is `related = true`.\"]}\n```",
       "blockedBy": [
         4
@@ -55,7 +55,7 @@
     {
       "id": 6,
       "subject": "Task 7: «Показывать меня в каталоге сети»",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** A member can publish `listed = true` in their own signed entry from Settings; default off.\n\n**Verify:** `./gradlew :core:data:testDebugUnitTest --tests '*ListedEntry*' :feature:settings:testDebugUnitTest` → `BUILD SUCCESSFUL`\n\n```json:metadata\n{\"files\": [\"otter-android-m95/core/data/src/main/kotlin/app/ottermsg/core/data/settings/Settings.kt\", \"otter-android-m95/feature/settings/src/main/kotlin/app/ottermsg/feature/settings/SettingsScreen.kt\", \"otter-android-m95/core/data/src/test/kotlin/app/ottermsg/core/data/ListedEntryTest.kt\"], \"verifyCommand\": \"`./gradlew :core:data:testDebugUnitTest --tests '*ListedEntry*' :feature:settings:testDebugUnitTest` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"Default off; switching on publishes a new entry version with `listed = true` through the existing `ProfileRepository` pending/publish path (also retried after a CONFLICT).\", \"Every later entry (name change) keeps the current `listed` value.\", \"Row «Показывать меня в каталоге сети», subtitle «Узлы и администратор всё равно видят всех участников», is a `Role.Switch` row directly after «Запрет скриншотов»; `SettingsOrderTest` updated.\"]}\n```",
       "blockedBy": [
         5
@@ -64,7 +64,7 @@
     {
       "id": 7,
       "subject": "Task 8: Exact username lookup and «Написать» search",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** «Написать» filters the catalog as you type and offers «Найти @name»; the answer is checked and shown as a\n\n**Verify:** `./gradlew :core:data:testDebugUnitTest --tests '*UsernameLookup*' :feature:chats:testDebugUnitTest --tests '*NewChatSearch*'` → `BUILD SUCCESSFUL`\n\n```json:metadata\n{\"files\": [\"otter-android-m95/core/data/src/main/kotlin/app/ottermsg/core/data/directory/UsernameLookup.kt\", \"otter-android-m95/feature/chats/src/main/kotlin/app/ottermsg/feature/chats/PersonCard.kt\", \"otter-android-m95/feature/chats/.../NewChatScreen.kt\", \"otter-android-m95/core/data/src/test/kotlin/app/ottermsg/core/data/UsernameLookupTest.kt\"], \"verifyCommand\": \"`./gradlew :core:data:testDebugUnitTest --tests '*UsernameLookup*' :feature:chats:testDebugUnitTest --tests '*NewChatSearch*'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`UsernameLookup.find(\\\"@Name\\\")` returns `Found(contact)` from the local store without a network call when the username is known; else asks the node.\", \"**Hostile node:** a lookup answer whose verified entry has another username → `NotFound` (nothing stored as a catalog contact).\", \"Results: `Found`, `NotFound` («Пользователь не найден»), `Limited` («Слишком много поисков, попробуйте позже»), `OldNode` («Сервер устарел, попробуйте позже»), `Offline` («Нет подключения»).\", \"«Написать» has a search field; typing filters the catalog by name or `@username` (reuse `pickList` logic); a query that is a valid username and not an exact catalog match shows the row «Найти @name».\", \"The card shows avatar, display name, `@username` and «Написать» (or «Открыть чат» if a conversation exists); «Написать» opens the conversation.\"]}\n```",
       "blockedBy": [
         5
@@ -73,7 +73,7 @@
     {
       "id": 8,
       "subject": "Task 9: `@username` links in messages and «Поделиться именем пользователя»",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** `@name` in a message opens the person card; the profile can share `@username`.\n\n**Verify:** `./gradlew :feature:conversation:testDebugUnitTest --tests '*UsernameLinks*' --tests '*MessageBubble*' :feature:settings:testDebugUnitTest --tests '*ProfileShare*'` → `BUILD SUCCESSFUL`\n\n```json:metadata\n{\"files\": [\"otter-android-m95/feature/conversation/src/main/kotlin/app/ottermsg/feature/conversation/UsernameLinks.kt\", \"otter-android-m95/feature/conversation/.../MessageBubble.kt\", \"otter-android-m95/core/ui/src/main/kotlin/app/ottermsg/core/ui/components/PersonCard.kt\", \"otter-android-m95/feature/settings/.../ProfileScreen.kt\", \"otter-android-m95/feature/conversation/src/test/.../UsernameLinksTest.kt\"], \"verifyCommand\": \"`./gradlew :feature:conversation:testDebugUnitTest --tests '*UsernameLinks*' --tests '*MessageBubble*' :feature:settings:testDebugUnitTest --tests '*ProfileShare*'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`findUsernames(\\\"Пиши @vera_k или @Ivan#1a2b3c4d, mail a@b.c\\\")` → ranges of `@vera_k` and `@Ivan#1a2b3c4d` only (not inside an e-mail or word).\", \"In a text bubble each match is a `LinkAnnotation.Clickable` in the link style; tap → lookup → the card (or the not-found / limited / old-node text in a snackbar).\", \"TalkBack: each username link is reachable as a button labelled «Открыть @vera_k».\", \"Profile row «Поделиться именем пользователя» (icon `Icons.Outlined.Share`) sends `@username` with `ACTION_SEND` through a chooser.\"]}\n```",
       "blockedBy": [
         7
@@ -82,7 +82,7 @@
     {
       "id": 9,
       "subject": "Task 10: Network code on join and in «Состояние сети», node versions",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The join step shows the network code; «Состояние сети» shows the code and each node's last seen version.\n\n**Verify:** `./gradlew :core:crypto:test --tests '*NetworkCode*' :feature:onboarding:testDebugUnitTest :feature:settings:testDebugUnitTest --tests '*NetworkStatus*'` → `BUILD SUCCESSFUL`\n\n```json:metadata\n{\"files\": [\"otter-android-m95/core/crypto/src/main/kotlin/app/ottermsg/core/crypto/NetworkCode.kt\", \"otter-android-m95/feature/onboarding/.../OnboardingState.kt\", \"otter-android-m95/core/data/.../settings/Settings.kt\", \"otter-android-m95/feature/settings/.../NetworkStatusScreen.kt\"], \"verifyCommand\": \"`./gradlew :core:crypto:test --tests '*NetworkCode*' :feature:onboarding:testDebugUnitTest :feature:settings:testDebugUnitTest --tests '*NetworkStatus*'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`NetworkCode.of(pub)` matches the three shared vectors (`vectors/network_code.json`).\", \"After a valid link, the profile step shows «Код сети: 92144 18366 54483» and «Сверьте его с тем, кто вас пригласил» under «Вас приглашает …».\", \"«Состояние сети» shows «Код сети» at the top and «Версия 0.11.0» on each node card the phone has connected to (no line for nodes never reached).\", \"The version is recorded from `LoginResponse.server_version` on each login, keyed by the connected node's label.\"]}\n```",
       "blockedBy": [
         4
@@ -91,7 +91,7 @@
     {
       "id": 10,
       "subject": "Task 11: «Сеть изменилась» warning",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** A manifest signed for another network shows a full-screen warning once per app process instead of being\n\n**Verify:** `./gradlew :core:crypto:test --tests '*ManifestVerifier*' :core:data:testDebugUnitTest --tests '*ManifestUpdater*' :app:testDebugUnitTest` → `BUILD SUCCESSFUL`\n\n```json:metadata\n{\"files\": [\"otter-android-m95/core/crypto/src/main/kotlin/app/ottermsg/core/crypto/ManifestVerifier.kt\", \"otter-android-m95/app/src/main/java/app/ottermsg/NetworkChangedScreen.kt\", \"otter-android-m95/app/src/main/java/app/ottermsg/MainActivity.kt:97-98\", \"otter-android-m95/core/crypto/src/test/.../ManifestVerifierTest.kt\"], \"verifyCommand\": \"`./gradlew :core:crypto:test --tests '*ManifestVerifier*' :core:data:testDebugUnitTest --tests '*ManifestUpdater*' :app:testDebugUnitTest` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`ManifestVerifier.foreignNetwork(raw, ours)` is true only when the manifest is validly self-signed by a `network_pub` different from ours.\", \"`ManifestUpdater.offer` returns `Result.FOREIGN` then, stores nothing, and sets `SyncEngine.networkChanged` (`StateFlow<Boolean>`, in memory only).\", \"A manifest with a broken signature still returns `IGNORED` (no warning: that is noise, not a network change).\", \"`MainActivity` shows `NetworkChangedScreen` while `networkChanged` is true: title «Сеть изменилась», text «Не вводите пароли и обратитесь к администратору. Этот узел выдаёт себя за другую сеть.», button «Понятно» (dismisses until the app restarts).\"]}\n```",
       "blockedBy": [
         4
@@ -100,7 +100,7 @@
     {
       "id": 11,
       "subject": "Task 12: Docs, versions, full checks, owner test, merge, rollout",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Docs match the code, both repos are green, the owner checks it on two phones, then merges and rolls out.\n\n**Verify:** the three commands above.\n\n```json:metadata\n{\"files\": [\"docs-m95/00-decisions.md\", \"docs-m95/02-protocol.md\", \"docs-m95/09-roadmap.md\", \"docs-m95/07-android-architecture.md\", \"docs-m95/10-otter-design-guidelines.md\", \"docs-m95/superpowers/specs/2026-11-15-m9-5-member-privacy-design.md\", \"docs-m95/superpowers/specs/2026-11-15-m10-video-calls-design.md\", \"otter-android-m95/app/build.gradle.kts:37\"], \"verifyCommand\": \"the three commands above.\", \"acceptanceCriteria\": [\"Server: `nice -n 15 ionice -c3 go test -race -p 4 ./...` all `ok`; `go vet ./...` clean; `scripts/secrets-check.sh` ok.\", \"App (after the server run has finished): `nice -n 15 ./gradlew test lintDebug assembleDebug assembleRelease` → `BUILD SUCCESSFUL`; `scripts/secrets-check.sh` ok.\", \"Docs: `scripts/secrets-check.sh` ok in `docs-m95`.\", \"Owner test passed and owner said \\\"merge\\\".\"]}\n```",
       "blockedBy": [
         3,
@@ -111,5 +111,5 @@
       ]
     }
   ],
-  "lastUpdated": "2026-11-18T12:00:00Z"
+  "lastUpdated": "2026-11-19T12:00:00Z"
 }

@@ -4,7 +4,18 @@ Status: **approved by the owner** (2026-11-15). Agreed in chat: network code yes
 lookup by exact username, inviter and invitee always see each other (one level only), a `@username` sent in a chat
 opens that person, filtering by the node (option 3 of open / app-only / node filter / private discovery), no
 transition period for old apps.
-Built after M9.4 (it needs the M9.2 invite chain) and before M10. Server and app versions are set by the plan.
+Built after M9.4 (it needs the M9.2 invite chain) and before M10: server 0.11.0, app 0.11.0 (15).
+
+**As built (2026-11-19), corrections to this spec** (details in `00-decisions.md` D135–D139):
+- The clash tag has **8 hex digits** (`name#1a2b3c4d`, D103), not 4.
+- Directory answers also carry the **invite ancestry** of every entry (inviter, inviter's inviter, … and rival
+  redemptions), which phones need to verify invite chains (D135). Phones store these entries but never show them.
+- The `directory` event **stays a broadcast** (D138); a targeted event would stop chat partners from learning a new name.
+- The node version travels in **`LoginResponse.server_version`** (members only), not in `hello` (D139).
+- `directory.list` has no `since`; there is no `Manifest.directory_full_until_ms`.
+- «Сеть изменилась» is a dismissable warning shown once per app run, not a stop screen (D139); the switch sits in the
+  plain settings list after «Запрет скриншотов», not in a «Приватность» section.
+- Old apps are those up to 0.10.1.
 
 ## Why
 
@@ -22,11 +33,12 @@ Built after M9.4 (it needs the M9.2 invite chain) and before M10. Server and app
 - **Where it shows:**
   - the join screen, before «Присоединиться»: «Код сети: 12345 67890 13579. Сверьте его с тем, кто вас пригласил»;
   - Settings → «Сеть» (the M9.4 status screen), with the version of each node the phone talked to
-    (information only, after login; a node can lie about it);
+    (information only, after login; a node can lie about it; as built it comes in `LoginResponse.server_version`);
   - `otter-admin network code` for the admin.
 - **The network key never changes for an installed app.** The app already refuses a manifest with another
   `network_pub` (`ManifestVerifier`, "foreign network"). Add a test that pins this, and show a clear stop screen
-  instead of a silent retry: «Сеть изменилась. Не вводите пароли и обратитесь к администратору».
+  instead of a silent retry: «Сеть изменилась. Не вводите пароли и обратитесь к администратору». (As built: a
+  warning with «Понятно», once per app run, D139.)
 - **No per-node fingerprints for users.** Node keys are pinned through the signed manifest already and rotate
   legitimately; a visible "fingerprint changed" warning would fire on normal maintenance. A compromised node keeps its
   real key, so a node fingerprint would not reveal it anyway.
@@ -50,7 +62,7 @@ Anyone can still be **reached** by:
 
 ### A `@username` in a message
 
-- `@name` and `@name#abcd` (D31 clash tag) in message text become links, like web links.
+- `@name` and `@name#1a2b3c4d` (D103 clash tag, 8 hex digits) in message text become links, like web links.
 - Tap → exact lookup → a card with avatar, display name, `@username` and «Написать» (or «Открыть чат» if a chat exists).
   Not found → «Пользователь не найден».
 - Profile gets «Поделиться именем пользователя», which copies or shares `@username`.
@@ -70,20 +82,20 @@ Anyone can still be **reached** by:
 - `DirectoryEntry.listed = 12` (bool, signed by the account; fields 10 and 11 are M9.2's invite chain).
 - The phone keeps one WebSocket; methods are named per request, so the new calls are **new method names**, not a new
   URL, and the node tells old and new apps apart by the method alone (no app version check).
-- New `directory.list{since}` (new apps) returns only: the caller's own entry, entries of `listed` members, the
-  caller's direct inviter and invitees (from the invite chain), and every `REVOCATION`. Group members and chat
-  partners are fetched by id.
-- The `directory` change event goes only to phones whose `directory.list` set contains the changed entry (or whose
-  own entry changed).
+- New `directory.list` (new apps) returns only: the caller's own entry, entries of `listed` members, the
+  caller's direct inviter and invitees (from the invite chain), the invite ancestry and rival redemptions of all of
+  these (D135), and every `REVOCATION`, `INVITE_RIGHTS` and `REKEY`. Group members and chat partners are fetched by id.
+- ~~The `directory` change event goes only to phones whose `directory.list` set contains the changed entry (or whose
+  own entry changed).~~ As built: the event stays a broadcast to every logged-in phone (D138).
 - New `directory.get{user_ids}` → entries for known random 16-byte ids (learned from a chat, a group or an invite).
   Ids cannot be guessed, so no rate limit beyond the per-connection limits of M9.4.
-- New `directory.lookup{username}` → one entry or `NOT_FOUND`, exact match only (case-insensitive, `#abcd` honoured).
+- New `directory.lookup{username}` → one entry or `NOT_FOUND`, exact match only (case-insensitive, `#1a2b3c4d` honoured).
   Limited per account: 30 per hour and 200 per day, failed lookups included, so nobody walks the name space.
 - Every rule is checked by the node that answers; replication is unchanged (all nodes keep all entries).
 
 ### Compatibility (no transition period, owner)
 
-| | Old app (≤ 0.9.x) | New app (M9.5) |
+| | Old app (≤ 0.10.1) | New app (M9.5, 0.11.0) |
 |---|---|---|
 | Directory list | `directory.sync`, which now returns the **same filtered set** as `directory.list` from the day the node is upgraded | `directory.list` |
 | By id / exact name | — | `directory.get`, `directory.lookup` |
@@ -94,6 +106,9 @@ Anyone can still be **reached** by:
 - Old apps never get an error. They keep chatting with everyone they already have; their «Написать»/«Семья» list
   shrinks to the filtered set until the member updates (the APK comes from Otter's own nodes). There is no cut-over
   date and no manifest field: new members are never visible to strangers, not even for a day.
+  As built, two limits until the member updates: old apps also show the ancestry entries (they have no catalog
+  filter), and they cannot read a message from a sender outside their visible set (they only call `directory.sync`),
+  so such messages wait on the node until the app is updated.
 - **Old node, new app** (only while the owner upgrades nodes): an old node answers "unknown method" to
   `directory.list`; the app falls back to `directory.sync` and applies the same rules itself before showing anything.
   `directory.get`/`lookup` fail on an old node with «Сервер устарел, попробуйте позже».

@@ -27,7 +27,7 @@ repos.
 
 **Ground rules (owner):**
 * Branch **`m10-video`** in `otter-server`, `otter-android` and `docs`, created from `main` **after all of M9 is merged**
-  (M9.0–M9.4). TDD, small commits. Merge with `--no-ff` **only after the owner says so**. Run
+  (M9.0–M9.5). TDD, small commits. Merge with `--no-ff` **only after the owner says so**. Run
   `scripts/secrets-check.sh` in every repo before any push.
 * **This plan was written against the code of 2026-11-15 (M9.0 merged, M9.1–M9.4 not built yet).** M9 changes
   several files this plan touches (`CallManager.kt`, `CallStateMachine.kt`, `TurnCache.kt`, `MailboxReceiver.kt`,
@@ -60,7 +60,7 @@ repos.
   }
   ```
   Every message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (pass it as a second `-m`).
-* Versions: app **0.11.0 / versionCode 15**, server **0.11.0**. Decisions **D125–D129** (next free after M9's
+* Versions: app **0.12.0 / versionCode 16**, server **0.12.0**. Decisions **D125–D129** (next free after M9's
   D82–D124; if `00-decisions.md` ends elsewhere when you get there, shift all five consistently).
 * Room: **no database change** in M10 (the only new persistent value is a row of the key-value `settings` table).
 
@@ -68,15 +68,15 @@ repos.
 
 | Question | Answer | Source |
 |---|---|---|
-| Repo state | All three repos on `main` at the M9.0 merge; M9.1–M9.4 not built. App 0.8.2 / versionCode 10 today; M9.4 ends at 0.10.1 / 14 → M10 is 0.11.0 / 15. | `git log`, `app/build.gradle.kts:35`, M9 plan Task 72 |
+| Repo state | All three repos on `main` at the M9.0 merge; M9.1–M9.4 not built. App 0.8.2 / versionCode 10 today; M9.4 ends at 0.10.1 / 14, M9.5 at 0.11.0 / 15 → M10 is 0.12.0 / 16. | `git log`, `app/build.gradle.kts:35`, M9 plan Task 72 |
 | Proto field 6 | `CallMessage.oneof kind` uses 2–5 (`offer`, `answer`, `candidates`, `hangup`); **6 is free**; no M9 task adds a `CallMessage` field. Server and Android copies of `content.proto` are identical (`diff` → no output). Go: `make gen` (buf v1.75.0 + protoc-gen-go v1.36.12); Android: `otter-android/scripts/sync-proto.sh` copies `proto/otter/v1/*.proto`; Android uses protobuf **javalite** → `CallMessage.KindCase.MEDIA`, `CallMessage.MEDIA_FIELD_NUMBER`, `CallMedia.newBuilder().setCameraOn().setPaused()`. | `content.proto:107-115`, `Makefile:10-13`, `core/proto/build.gradle.kts:10` |
-| Old app receiving `media` | 0.10.x parses the unknown oneof field as an unknown field → `kindCase == KIND_NOT_SET`; `CallManager.onCallMessage` has `else -> {}`; `MailboxReceiver` routes every `Content.BodyCase.CALL` to `CallInbox` and acks it. So an old app ignores `CallMedia` silently (no chat, no bubble). | `CallManager.kt:139-150`, `MailboxReceiver.kt:87-88` |
+| Old app receiving `media` | 0.11.x parses the unknown oneof field as an unknown field → `kindCase == KIND_NOT_SET`; `CallManager.onCallMessage` has `else -> {}`; `MailboxReceiver` routes every `Content.BodyCase.CALL` to `CallInbox` and acks it. So an old app ignores `CallMedia` silently (no chat, no bubble). | `CallManager.kt:139-150`, `MailboxReceiver.kt:87-88` |
 | Urgency of call signaling | `CallSignaling.send` makes **every** call message urgent with a 2-min expiry. M9 Task 46 treats an urgent short-expiry envelope as a call wake and allows 8 per minute per sender → camera toggles must not be urgent (they would eat the budget an offer needs). `CallMedia` goes out non-urgent (the peer is in the call and connected through the call lease). | `CallSignaling.kt:20-26`, M9 plan Task 46 |
 | Fake engine name | The spec's "FakeMediaEngine" is `class FakeEngine` at the top of `CallManagerTest.kt`. Several tests assert the **exact** list `FakeEngine.calls` (e.g. `listOf("answer:their-offer", "cands:1")`) → the new video calls are recorded in a separate list `FakeEngine.video`, saver in `FakeEngine.saver`. | `CallManagerTest.kt:45-58,243,279` |
 | Timer seam | `CallManager.onBusy()` starts a ticker that posts `CallEvent.Tick` every 1 s while not Idle; all state changes run on one event loop (`ops` channel). The watchdog sample is a second op posted by the same ticker. | `CallManager.kt:99-114,311-314` |
 | WebRTC AAR | `~/.gradle/caches/modules-2/files-2.1/io.github.webrtc-sdk/android/150.7871.04/662256e1…/android-150.7871.04.aar`. Verified with `javap` on its `classes.jar`: `Camera2Enumerator(Context)`: `getDeviceNames()`, `isFrontFacing(String)`, `isBackFacing(String)`, `createCapturer(String, CameraVideoCapturer.CameraEventsHandler): CameraVideoCapturer`; `CameraVideoCapturer.switchCamera(CameraSwitchHandler)` with `onCameraSwitchDone(boolean isFront)` / `onCameraSwitchError(String)`; `CameraEventsHandler`: `onCameraError(String)`, `onCameraDisconnected()`, `onCameraFreezed(String)`, `onCameraOpening(String)`, `onFirstFrameAvailable()`, `onCameraClosed()`; `VideoCapturer.initialize(SurfaceTextureHelper, Context, CapturerObserver)`, `startCapture(w,h,fps)`, `stopCapture()` (throws InterruptedException), `changeCaptureFormat(w,h,fps)`, `dispose()`; `SurfaceTextureHelper.create(String, EglBase.Context)`; `PeerConnectionFactory.createVideoSource(boolean isScreencast)`, `createVideoTrack(String, VideoSource)`; `VideoSource.getCapturerObserver()`, `adaptOutputFormat(int,int,int)` (uses max/min of w,h → both orientations); `VideoTrack.addSink/removeSink(VideoSink)`; `PeerConnection.addTransceiver(MediaStreamTrack.MediaType, RtpTransceiver.RtpTransceiverInit)`, `getTransceivers()`, `getStats(RTCStatsCollectorCallback)`; `RtpTransceiverInit(RtpTransceiverDirection, List<String> streamIds)`; `RtpTransceiver.getMediaType()`, `getSender()`, `getReceiver()`, `isStopped()`, `getCurrentDirection()` (may be null), `setDirection(dir): boolean`; `RtpSender.setTrack(MediaStreamTrack?, boolean takeOwnership): boolean` (**two arguments**; null allowed), `getParameters()`, `setParameters(RtpParameters): boolean`; `RtpParameters.encodings: List<Encoding>`, `Encoding.maxBitrateBps: Integer`, `maxFramerate: Integer`, `scaleResolutionDownBy: Double`, `active`; `DefaultVideoEncoderFactory(EglBase.Context, boolean enableIntelVp8Encoder, boolean enableH264HighProfile)`, `DefaultVideoDecoderFactory(EglBase.Context)`; `PeerConnectionFactory.Builder.setVideoEncoderFactory/setVideoDecoderFactory`; `EglBase.create()`, `getEglBaseContext()`, `release()`; `SurfaceViewRenderer(Context)`: `init(EglBase.Context, RendererCommon.RendererEvents)`, `setMirror`, `setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)`, `setEnableHardwareScaler`, `release()` (+ `SurfaceView.setZOrderMediaOverlay`); `FileVideoCapturer(String path)` reads **Y4M** (`C420`/`C420mpeg2`, even sizes) and ticks with a `java.util.Timer`; `PeerConnection.Observer.onTrack(RtpTransceiver)` is a default method. **No `TextureViewRenderer`** in this AAR → `SurfaceViewRenderer` only. Kotlin: setters returning `boolean` are called as methods (`setDirection(...)`, `setParameters(...)`), not as properties. | `unzip` + `javap -public` on the AAR |
 | Stats | `RTCStatsReport.getStatsMap(): Map<String, RTCStats>`; `RTCStats(long timestampUs, String type, String id, Map<String,Object> members)` — plain Java, **constructible in JVM tests**. Member names present in the native lib: `availableOutgoingBitrate` (Double, bit/s, on the selected `candidate-pair`), `selectedCandidatePairId` (`transport`), `kind`, `bytesSent`, `bytesReceived`, `framesDecoded`, `framesEncoded`, `framesSent`, `frameWidth`, `frameHeight`, `packetsSent`, `nominated`. uint64 members arrive as **`java.math.BigInteger`** (the lib references it), so numbers are read with `(v as? Number)?.toLong()`. `bytesSent` excludes headers and padding (W3C), so "no video RTP after `setTrack(null)`" is checked with the sent-bytes delta. | `javap`, `strings` on `libjingle_peerconnection_so.so` |
-| Old app answering a video offer | Per JSEP (RFC 8829 §5.10) a remote offer's m-section is matched only to a transceiver **created by `addTrack`**; otherwise a new transceiver is created **`recvonly`**. The M8 engine adds audio with `addTrack` and has no video, so a 0.10 app answers our video section `recvonly` (or rejects it), **not "inactive"** as the spec says. Consequences: (a) the answerer must not pre-create the video transceiver — it takes the one `setRemoteDescription` created and sets it `SEND_RECV`; (b) "peer supports video" = `videoTransceiver.currentDirection == SEND_RECV` after the exchange (false for `SEND_ONLY`, `INACTIVE`, `STOPPED`, null). Task 11 proves both directions on the emulator. | RFC 8829 §5.10; `WebRtcEngine.kt:429-434` |
+| Old app answering a video offer | Per JSEP (RFC 8829 §5.10) a remote offer's m-section is matched only to a transceiver **created by `addTrack`**; otherwise a new transceiver is created **`recvonly`**. The M8 engine adds audio with `addTrack` and has no video, so a 0.11 app answers our video section `recvonly` (or rejects it), **not "inactive"** as the spec says. Consequences: (a) the answerer must not pre-create the video transceiver — it takes the one `setRemoteDescription` created and sets it `SEND_RECV`; (b) "peer supports video" = `videoTransceiver.currentDirection == SEND_RECV` after the exchange (false for `SEND_ONLY`, `INACTIVE`, `STOPPED`, null). Task 11 proves both directions on the emulator. | RFC 8829 §5.10; `WebRtcEngine.kt:429-434` |
 | Bandwidth estimate while paused | GoogCC does not raise its estimate much above ~1.5 × the rate actually sent while the sender is application-limited, so with only Opus flowing (~30 kbit/s) `availableOutgoingBitrate` cannot climb to 400 kbit/s; adding a video track (higher allocation) triggers probing. → While paused, the resume measurement needs **short video test bursts** (Task 6, D126; owner question 1). | libwebrtc AimdRateControl / ProbeController behaviour |
 | Android APIs | `ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA` API 30; permission `FOREGROUND_SERVICE_CAMERA` API 34; `PictureInPictureParams.Builder.setActions(List<RemoteAction>)`, `setAspectRatio(Rational)` API 26, `setAutoEnterEnabled` API 31; `Activity.enterPictureInPictureMode(PictureInPictureParams)` API 26 (= minSdk); `RemoteAction(Icon, CharSequence, CharSequence, PendingIntent)`; activity 1.11.0 `ComponentActivity.addOnPictureInPictureModeChangedListener(Consumer<PictureInPictureModeChangedInfo>)` and `addOnUserLeaveHintListener(Runnable)`. `CAMERA` is already declared (feature:conversation manifest; `SmokeTest.cameraFileProviderAndPermissionDeclared`). | `android-36/data/api-versions.xml`, `javap` on android.jar and activity-1.11.0.aar |
 | Icons | `material-icons-extended` 1.7.8 has `Icons.Filled.Videocam`, `VideocamOff`, `Cameraswitch`, `DataSaverOn`, `DataSaverOff`. | `unzip -l` on the AAR |
@@ -112,7 +112,7 @@ repos.
 | `feature/calls/build.gradle.kts`, `src/androidTest/...` (new) | instrumented loopback test |
 | `feature/settings/.../SettingsScreen.kt`, `res/values*/strings.xml` | «Экономить трафик в видеозвонках» |
 | `app/.../calls/CallActivity.kt`, `CallService.kt`, `CallModule.kt`, `app/src/main/AndroidManifest.xml`, `app/src/main/res/drawable/ic_pip_hang_up.xml` (new) | permission, visibility, FGS camera type, PiP |
-| `app/build.gradle.kts` | 0.11.0 / 15 |
+| `app/build.gradle.kts` | 0.12.0 / 16 |
 | `docs/m10-manual-test.md` (new), `README.md` | docs |
 
 **docs**: `00-decisions.md` (D125–D129), `02-protocol.md`, `05-transport.md`, `06-node-architecture.md`,
@@ -137,10 +137,10 @@ repos.
 | 13 | Android: camera permission, screen-off/background/lock pause, `camera` FGS type | android |
 | 14 | Android: picture-in-picture | android |
 | 15 | Android: privacy guard tests (entry points, notifications) | android |
-| 16 | Versions 0.11.0, emulator acceptance, manual checklists | server, android |
+| 16 | Versions 0.12.0, emulator acceptance, manual checklists | server, android |
 | 17 | Docs: D125–D129, protocol/architecture/operations, roadmap, news draft | docs, server |
 | 18 | Final verification; merge after the owner says so | all |
-| 19 | Owner rollout: 0.11.0 on every node, `relay_kbps = 2000`, then the APK | owner |
+| 19 | Owner rollout: 0.12.0 on every node, `relay_kbps = 2000`, then the APK | owner |
 
 ---
 ### Task 1: Branches, `CallMedia` proto (field 6), protocol doc
@@ -166,7 +166,7 @@ repos.
 
 **Steps:**
 
-- [ ] **Step 1: Branches** (only after the owner confirms M9.4 is merged everywhere)
+- [ ] **Step 1: Branches** (only after the owner confirms M9.5 is merged everywhere)
 
 ```bash
 cd ~/Documents/Projects/OttterMSG
@@ -218,7 +218,7 @@ func TestCallMediaRoundTrip(t *testing.T) {
 
 ```proto
 // The sender's camera state (M10, D125). Sent whenever it changes, NOT urgent (it must not use the call-wake
-// budget), same 2-minute record expiry as the other call messages. Apps before 0.11.0 ignore it.
+// budget), same 2-minute record expiry as the other call messages. Apps before 0.12.0 ignore it.
 message CallMedia {
   bool camera_on = 1; // video from this side is (about to be) shown; false also while the sender's screen is off
   bool paused = 2;    // camera on, sending stopped by the weak-link watchdog: show «Видео приостановлено: слабая связь»
@@ -281,7 +281,7 @@ camera state changes: tap on/off, the weak-link pause (`paused = true`) and its 
 (`camera_on = false`) and shown again. Same Signal-encrypted 1:1 envelope and 2-minute record expiry as the other call
 messages but **not urgent** (it must not use the per-sender call-wake budget, M9 Task 46; the peer is connected
 because of the call). Every call negotiates one audio and one video transceiver; video starts and stops without a
-new offer. Apps before 0.11.0 ignore `media` (unknown oneof case). An offer without a video section, or an answer whose
+new offer. Apps before 0.12.0 ignore `media` (unknown oneof case). An offer without a video section, or an answer whose
 video section is not `sendrecv`, means "the peer cannot do video".
 ```
 
@@ -352,7 +352,7 @@ func TestTurnOnLogShowsTheRelayRate(t *testing.T) {
 ```
 
   `README.md:102`: "200 kbit/s per allocation (`relay_kbps`)" → "2000 kbit/s per allocation and direction
-  (`relay_kbps`; 200 before 0.11.0)".
+  (`relay_kbps`; 200 before 0.12.0)".
 
 - [ ] **Step 4: Run** the Verify command → `ok`; `go vet ./...` → no output.
 
@@ -638,7 +638,7 @@ config, restarts, confirms the new rate in the node's own log and restores the o
 
 **Acceptance Criteria:**
 - [ ] `turn-kbps.sh LABEL KBPS` refuses: missing/extra arguments, a non-number, a node without an SSH target, a node
-  below 0.11.0 (message `install 0.11.0 first`), a node without `[turn]` (hint `turn-setup.sh LABEL`).
+  below 0.12.0 (message `install 0.12.0 first`), a node without `[turn]` (hint `turn-setup.sh LABEL`).
 - [ ] Remote part: exactly one `relay_kbps = KBPS` line, directly under `[turn]`, other lines and sections kept;
   `otter-node check` runs on the new file before anything changes; old file kept as `node.toml.pre-kbps`; after the
   restart the health check passes **and** the `turn on` journal line shows `"relay_kbps":KBPS`, else the old file is
@@ -666,7 +666,7 @@ cat > "$work/stub/ssh" <<STUB
 echo "ssh \$*" >> "$work/ssh.log"
 case "\$*" in
   *"bash -s"*) cat > "$work/kbps-remote.sh"; [ -z "\$REMOTE_FAIL" ] || exit 1; echo "relay_kbps is 2000" ;;
-  *"otter-node version"*) printf '%s\n%s\n' "\${VER:-0.11.0}" "\${HAS:-turn}" ;;
+  *"otter-node version"*) printf '%s\n%s\n' "\${VER:-0.12.0}" "\${HAS:-turn}" ;;
 esac
 STUB
 chmod +x "$work/stub/ssh"
@@ -674,9 +674,9 @@ kbps() { rm -f "$work/ssh.log" "$work/kbps-remote.sh"; touch "$work/ssh.log"; PA
 out=$(kbps n1 2000) || fail "turn-kbps: $out"
 grep -q '^ssh -p 22 .*root@n1.example bash -s -- 2000$' "$work/ssh.log" || fail "turn-kbps remote call: $(cat "$work/ssh.log")"
 grep -q 'n1: TURN relay_kbps = 2000' <<< "$out" || fail "turn-kbps summary: $out"
-for v in 0.10.1 dev-abc123; do
+for v in 0.11.0 dev-abc123; do
   if out=$(VER=$v kbps n1 2000); then fail "turn-kbps accepted $v"; fi
-  grep -q 'install 0.11.0 first' <<< "$out" || fail "turn-kbps old-version message: $out"
+  grep -q 'install 0.12.0 first' <<< "$out" || fail "turn-kbps old-version message: $out"
   if grep -q 'bash -s' "$work/ssh.log"; then fail "turn-kbps changed a $v node"; fi
 done
 if out=$(HAS=no-turn kbps n1 2000); then fail "turn-kbps without [turn]"; fi
@@ -718,7 +718,7 @@ if out=$(CHECK_FAIL=1 kremote 2000); then fail "kbps remote ignored a failed che
 
 ```bash
 #!/usr/bin/env bash
-# Sets the TURN relay rate per allocation and direction ([turn] relay_kbps, M10 D129) on one node running 0.11.0+.
+# Sets the TURN relay rate per allocation and direction ([turn] relay_kbps, M10 D129) on one node running 0.12.0+.
 # Usage: turn-kbps.sh LABEL KBPS      M10 rollout: 2000; back to the M8 rate: 200
 # node.toml changes only after the new file passed `otter-node check`; if the node does not come back healthy with
 # "turn on" and the new rate in its log, the previous file (node.toml.pre-kbps) is restored and the node restarted.
@@ -734,7 +734,7 @@ probe=$(remote "$TARGET" '/usr/local/bin/otter-node version;
   if grep -q "^\[turn\]" /etc/otter/node.toml; then echo turn; else echo no-turn; fi') || die "cannot query $label ($TARGET)"
 ver="" has_turn=""
 { read -r ver || true; read -r has_turn || true; } <<< "$probe"
-version_ge "$ver" 0.11.0 || die "$label runs otter-node ${ver:-?}; install 0.11.0 first (deploy/upgrade-all.sh 0.11.0 --only $label)"
+version_ge "$ver" 0.12.0 || die "$label runs otter-node ${ver:-?}; install 0.12.0 first (deploy/upgrade-all.sh 0.12.0 --only $label)"
 [[ "$has_turn" == turn ]] || die "$label has no [turn] section; turn the relay on first: deploy/turn-setup.sh $label"
 say "setting relay_kbps = $kbps on $label"
 remote "$TARGET" bash -s -- "$kbps" <<'REMOTE' || die "relay_kbps not changed on $label (node left on its previous config)"
@@ -772,7 +772,7 @@ say "$label: TURN relay_kbps = $kbps"
 - [ ] **Step 5: `deploy/README.md`** — add under the TURN paragraph:
 
 ```markdown
-`deploy/turn-kbps.sh LABEL KBPS` sets `[turn] relay_kbps` on one node (0.11.0+): checks the new file with
+`deploy/turn-kbps.sh LABEL KBPS` sets `[turn] relay_kbps` on one node (0.12.0+): checks the new file with
 `otter-node check`, restarts, confirms `"relay_kbps":KBPS` in the node's `turn on` log line, and restores
 `node.toml.pre-kbps` otherwise. Video calls (M10) need 2000; `turn-kbps.sh LABEL 200` goes back to the M8 rate.
 Each closed allocation logs `turn allocation closed` with avg/peak kbit/s per direction:
@@ -873,7 +873,7 @@ data class RemoteMedia(val cameraOn: Boolean, val paused: Boolean)
 
 /** Camera and video of the current call (D125–D127). Reset when the call ends (only [hidden] survives). */
 data class VideoState(
-    /** null until the offer/answer exchange shows it; false: the peer's app is older than 0.11.0. */
+    /** null until the offer/answer exchange shows it; false: the peer's app is older than 0.12.0. */
     val peerVideo: Boolean? = null,
     val cameraOn: Boolean = false,
     val front: Boolean = true,
@@ -907,7 +907,7 @@ data class VideoState(
     /** The open camera failed or Android took it away. */
     data class CameraFailed(override val nowMs: Long) : CallEvent
     data class CameraSwitched(val front: Boolean, override val nowMs: Long) : CallEvent
-    /** After the offer/answer exchange: can the peer do video (app 0.11.0+)? */
+    /** After the offer/answer exchange: can the peer do video (app 0.12.0+)? */
     data class PeerVideo(val capable: Boolean, override val nowMs: Long) : CallEvent
     /** CallMedia from the peer. */
     data class RemoteCamera(val id: CallId, val cameraOn: Boolean, val paused: Boolean, override val nowMs: Long) : CallEvent
@@ -956,7 +956,7 @@ interface MediaListener {
     suspend fun setSaver(saver: Boolean)
     /** The last second's measurements; null before ICE connects. Also notices that remote frames stopped. */
     suspend fun stats(): MediaStats?
-    /** After the offer/answer exchange: the peer negotiated a send-receive video section (app 0.11.0+). */
+    /** After the offer/answer exchange: the peer negotiated a send-receive video section (app 0.12.0+). */
     fun peerVideo(): Boolean
 ```
 
@@ -2130,7 +2130,7 @@ import kotlin.coroutines.resumeWithException
 class WebRtcEngine(
     private val context: Context,
     private val sinks: VideoSinks,
-    /** false = behave like a 0.10 app (audio only, no video factories); Task 11's test plays an old peer with it. */
+    /** false = behave like a 0.11 app (audio only, no video factories); Task 11's test plays an old peer with it. */
     private val video: Boolean = true,
     /** Tests: a frame source instead of the camera (front = which side was asked for). */
     private val capturers: ((front: Boolean) -> VideoCapturer?)? = null,
@@ -2226,7 +2226,7 @@ class WebRtcEngine(
         val p = checkNotNull(pc)
         suspendSet { p.setRemoteDescription(it, SessionDescription(SessionDescription.Type.OFFER, remoteOffer)) }
         // M10: a remote video section created its own transceiver (JSEP matches only addTrack ones): make it sendrecv.
-        // An offer from an app before 0.11.0 has no video section → no transceiver → peerVideo() false.
+        // An offer from an app before 0.12.0 has no video section → no transceiver → peerVideo() false.
         if (video && videoTx == null) videoTx = p.transceivers.firstOrNull {
             it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO && !it.isStopped
         }?.also { it.setDirection(RtpTransceiver.RtpTransceiverDirection.SEND_RECV) }
@@ -2247,7 +2247,7 @@ class WebRtcEngine(
     override fun addCandidates(c: List<Candidate>) { c.forEach { pc?.addIceCandidate(IceCandidate(it.sdpMid, it.mLineIndex, it.sdp)) } }
     override fun setMuted(muted: Boolean) { track?.setEnabled(!muted) }
 
-    /** An app before 0.11.0 answers our video section recvonly (or rejects it): only sendrecv means video works. */
+    /** An app before 0.12.0 answers our video section recvonly (or rejects it): only sendrecv means video works. */
     override fun peerVideo(): Boolean = videoTx?.currentDirection == RtpTransceiver.RtpTransceiverDirection.SEND_RECV
 
     override suspend fun setCamera(on: Boolean) = withContext(Dispatchers.Default) {
@@ -3585,13 +3585,13 @@ oc -m "calls: privacy guards — the camera button is the only way to the camera
 ```
 
 ---
-### Task 16: Versions 0.11.0, emulator acceptance, manual checklists
+### Task 16: Versions 0.12.0, emulator acceptance, manual checklists
 
-**Goal:** The app is 0.11.0 (15); everything that can be proven locally is proven on the dev network and two
+**Goal:** The app is 0.12.0 (16); everything that can be proven locally is proven on the dev network and two
 emulators; both checklists list every spec row with local results and leave the real-network rows to the owner.
 
 **Files:**
-- Modify: `otter-android/app/build.gradle.kts:35` (`versionCode = 15; versionName = "0.11.0"`)
+- Modify: `otter-android/app/build.gradle.kts:35` (`versionCode = 16; versionName = "0.12.0"`)
 - Create: `otter-android/docs/m10-manual-test.md`, `otter-server/docs/m10-manual-test.md`
 
 **Acceptance Criteria:**
@@ -3601,15 +3601,15 @@ emulators; both checklists list every spec row with local results and leave the 
 - [ ] Local two-node network `x`/`y` with TURN (as in `otter-server/docs/m8-manual-test.md`, "Local two-node run"),
   emulators A (`m8_api34`) and B (`m8_api30`), relay-only on, rows 1–12 of the phone checklist below PASS with a date;
   each node's log shows `turn allocation closed` lines after the calls with peaks ≤ 2000 kbit/s.
-- [ ] 0.10.1 → 0.11.0 `adb install -r` keeps account and chats (no Room change).
+- [ ] 0.11.0 → 0.12.0 `adb install -r` keeps account and chats (no Room change).
 - [ ] Both checklists exist; owner rows marked "—".
 
 **Verify:** both checklist files exist; every local row has `PASS 2026-…`; `grep -c '| — |' otter-android/docs/m10-manual-test.md` ≥ 6.
 
 **Steps:**
 
-- [ ] **Step 1: Version.** `app/build.gradle.kts`: `versionCode = 15; versionName = "0.11.0"`. Commit:
-  `oc -m "app 0.11.0 (versionCode 15)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
+- [ ] **Step 1: Version.** `app/build.gradle.kts`: `versionCode = 16; versionName = "0.12.0"`. Commit:
+  `oc -m "app 0.12.0 (versionCode 16)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
 
 - [ ] **Step 2: Automated checks** (commands above); fix failures with the systematic-debugging skill.
 
@@ -3634,9 +3634,9 @@ emulators; both checklists list every spec row with local results and leave the 
 | 8 | B presses Home while A's video is shown (API 34 and API 30) | B goes into a 9:16 picture-in-picture window with A's video; its end-call action ends the call on both |
 | 9 | A (camera on) presses power (screen off), waits 10 s, powers on, unlocks | B shows A's avatar within ~2 s; nothing while locked; A's video back after the unlock without a new permission prompt |
 | 10 | Throttle A to 200:200 kbit/s with both cameras on, 60 s; then `network speed full` | both screens «Видео приостановлено: слабая связь» within ~10–15 s, audio continues; after the limit is removed video returns within ~2 min (test bursts) and the notice goes away |
-| 11 | A on 0.10.1 (debug build of the M9.4 merge commit: `git worktree add /tmp/otter-0101 <that commit>`) calls B on 0.11.0, and the other way round | calls connect with audio; on the 0.11.0 side the camera button is disabled with «У собеседника старая версия»; the 0.10.1 side shows nothing new |
-| 12 | `adb install -r` 0.11.0 over 0.10.1 on B | account and chats kept; the next call works with video |
-| 13 | (owner) both phones 0.11.0, relay only, 5-min video call via the relays: camera on/off, switch, PiP, saver | clear video and audio for 5 min; «Журнал подключений» `call:relay-…` |
+| 11 | A on 0.11.0 (debug build of the M9.5 merge commit: `git worktree add /tmp/otter-0110 <that commit>`) calls B on 0.12.0, and the other way round | calls connect with audio; on the 0.12.0 side the camera button is disabled with «У собеседника старая версия»; the 0.11.0 side shows nothing new |
+| 12 | `adb install -r` 0.12.0 over 0.11.0 on B | account and chats kept; the next call works with video |
+| 13 | (owner) both phones 0.12.0, relay only, 5-min video call via the relays: camera on/off, switch, PiP, saver | clear video and audio for 5 min; «Журнал подключений» `call:relay-…` |
 | 14 | (owner) one phone on a hotspot limited to ~200 kbit/s | the call turns to audio with «Видео приостановлено: слабая связь» on both instead of dropping; video comes back when the limit is removed |
 | 15 | (owner) answer while the caller's camera is on | the answering phone's camera stays off; its lock screen and incoming notification show no video |
 | 16 | (owner) Bluetooth headset in a video call | audio stays on the headset (no forced speaker) |
@@ -3652,7 +3652,7 @@ emulators; both checklists list every spec row with local results and leave the 
 | 1 | `make check`, meshsim `Turn|CallRelay|RelayLogs` ×3, `scripts_test.sh` (scratch copy) | ok |
 | 2 | local nodes without `relay_kbps` | `turn on` line has `"relay_kbps":2000` |
 | 3 | video call on the local nodes, then hang up | one `turn allocation closed` line per allocation, no names or IPs, peaks ≤ 2000 |
-| 4 | (owner) every node after `upgrade-all.sh 0.11.0` | `deploy/status.sh` VERSION 0.11.0, TURN on |
+| 4 | (owner) every node after `upgrade-all.sh 0.12.0` | `deploy/status.sh` VERSION 0.12.0, TURN on |
 | 5 | (owner) `turn-kbps.sh LABEL 2000` on every node | `LABEL: TURN relay_kbps = 2000`; journal `turn on … "relay_kbps":2000` |
 | 6 | (owner) after the 5-min video call | `turn allocation closed` lines on the nodes used, peak ≤ 2000, `rate_limited` false |
 
@@ -3662,14 +3662,14 @@ emulators; both checklists list every spec row with local results and leave the 
 
 ### Task 17: Docs — D125–D129, protocol/architecture/operations, roadmap, news draft
 
-**Goal:** The docs describe M10 as built; the 0.11.0 news draft is ready.
+**Goal:** The docs describe M10 as built; the 0.12.0 news draft is ready.
 
 **Files:**
 - Modify (docs repo, branch `m10-video`): `00-decisions.md`, `02-protocol.md` (Task 1; re-check), `05-transport.md`,
   `06-node-architecture.md` (lines 156, 191, 227: rate 2000; the log line), `07-android-architecture.md`,
   `08-operations.md`, `09-roadmap.md`, `README.md`
 - Modify: `otter-server/README.md` (Calls section: video, 2000 kbit/s, log line, `turn-kbps.sh`), `otter-android/README.md` (one paragraph)
-- Create: `otter-server/dist/news/0.11.0.md` (gitignored; never delete files in `dist/`)
+- Create: `otter-server/dist/news/0.12.0.md` (gitignored; never delete files in `dist/`)
 
 **Acceptance Criteria:**
 - [ ] Five decision rows (numbers shifted if `00-decisions.md` does not end at D124):
@@ -3678,7 +3678,7 @@ emulators; both checklists list every spec row with local results and leave the 
     transceiver created by the remote offer `sendrecv` (JSEP matches only `addTrack` transceivers). Camera on/off/switch
     = `RtpSender.setTrack(track | null)`, never a new offer. `CallMessage.media = 6` → `CallMedia{camera_on, paused}`,
     sent on every change, **not urgent** (the per-sender call-wake budget, M9 Task 46), 2-min expiry. Peer can do
-    video ⇔ video `currentDirection == sendrecv` after the exchange (an app before 0.11.0 answers `recvonly` or has no
+    video ⇔ video `currentDirection == sendrecv` after the exchange (an app before 0.12.0 answers `recvonly` or has no
     video section) → camera button disabled «У собеседника старая версия». Codecs: `DefaultVideoEncoderFactory(egl,
     true, false)` / `DefaultVideoDecoderFactory(egl)` with one shared `EglBase` (hardware H.264/VP8, software VP8
     otherwise; H.264 High off). Rejected: simulcast/SVC, renegotiation per toggle, a separate "video call" type.
@@ -3727,11 +3727,11 @@ emulators; both checklists list every spec row with local results and leave the 
   `oc -m "docs: M10 video calls (D125–D129), roadmap M10 notes" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`;
   READMEs in the code repos with `oc -m "README: video calls (M10)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
 
-- [ ] **Step 2:** `otter-server/dist/news/0.11.0.md`:
+- [ ] **Step 2:** `otter-server/dist/news/0.12.0.md`:
 
 ```markdown
 ## ru
-Otter 0.11.0
+Otter 0.12.0
 • Видеозвонки! Во время любого звонка нажмите на кнопку камеры — собеседник увидит вас. Камера включается только вашей кнопкой: ни звонок, ни ответ на него камеру не включают.
 • При первом нажатии Android спросит доступ к камере — пожалуйста, разрешите.
 • Видео зашифровано так же, как голос, и идёт через наш сервер.
@@ -3741,7 +3741,7 @@ Otter 0.11.0
 • У собеседника со старой версией видео не будет — попросите его обновиться.
 
 ## en
-Otter 0.11.0
+Otter 0.12.0
 • Video calls! During any call, tap the camera button and the other person will see you. Only your tap turns the camera on: neither calling nor answering does.
 • The first time, Android asks for camera access — please allow it.
 • Video is encrypted just like the voice and goes through our server.
@@ -3761,7 +3761,7 @@ Otter 0.11.0
 
 **Acceptance Criteria:**
 - [ ] `otter-server`: `make check` → ok; `go test ./internal/meshsim/ -count=3 -race` → ok; `scripts_test.sh` in a
-  scratch copy → `scripts test: ok`; `make release VERSION=0.11.0` builds `dist/otter-node_0.11.0_linux_{amd64,arm64}`
+  scratch copy → `scripts test: ok`; `make release VERSION=0.12.0` builds `dist/otter-node_0.12.0_linux_{amd64,arm64}`
   and `SHA256SUMS` (nothing in `dist/` deleted).
 - [ ] `otter-android`: `./gradlew test lintDebug assembleRelease` → BUILD SUCCESSFUL; `connectedDebugAndroidTest` for
   `:feature:calls` and `:app` on API 34 → passed; release APK release-signed (`apksigner verify --print-certs` shows the
@@ -3776,24 +3776,24 @@ approval; the secrets checks printed `ok` immediately before each push.
 **Steps:**
 
 - [ ] **Step 1:** Run every check above; fix and re-run until green (verification-before-completion skill).
-- [ ] **Step 2:** `make release VERSION=0.11.0`; `./gradlew assembleRelease` (the owner's `keystore.properties` signs
+- [ ] **Step 2:** `make release VERSION=0.12.0`; `./gradlew assembleRelease` (the owner's `keystore.properties` signs
   it; never print or copy the keystore or its passwords). Strip metadata is not needed (no new PNGs; the PiP icon is a
   vector).
 - [ ] **Step 3:** Show the owner the summary; wait for "merge". Merge and push all three repos (secrets checks first).
 
 ---
 
-### Task 19: Owner rollout — 0.11.0 on every node, `relay_kbps = 2000`, then the APK
+### Task 19: Owner rollout — 0.12.0 on every node, `relay_kbps = 2000`, then the APK
 
-**Goal:** Every node runs the same 0.11.0 binary with `relay_kbps = 2000`, confirmed in its own log, **before** the APK
-is published; both phones on 0.11.0; the owner's checklist rows filled.
+**Goal:** Every node runs the same 0.12.0 binary with `relay_kbps = 2000`, confirmed in its own log, **before** the APK
+is published; both phones on 0.12.0; the owner's checklist rows filled.
 
 **Files:** none in git (state lives on the servers, in `~/.otter-admin`, on the phones).
 
 **Acceptance Criteria:**
-- [ ] `deploy/status.sh` → every node `0.11.0`, `active`, TURN `on`; the gate in Step 4 prints nothing.
+- [ ] `deploy/status.sh` → every node `0.12.0`, `active`, TURN `on`; the gate in Step 4 prints nothing.
 - [ ] Every node's newest `turn on` journal line contains `"relay_kbps":2000`.
-- [ ] Only then: APK 0.11.0 published; both phones updated via «Обновить»; rows 13–18 (phone) and 4–6 (server) filled.
+- [ ] Only then: APK 0.12.0 published; both phones updated via «Обновить»; rows 13–18 (phone) and 4–6 (server) filled.
 
 **Verify:** the owner marks the rows PASS (or records what failed) in both `m10-manual-test.md` files.
 
@@ -3807,22 +3807,22 @@ in the owner's terminal.**
 deploy/status.sh
 ```
 
-  Expected: one row per node (eeee, and ru-1 if it exists by then) with VERSION `0.10.1`, SERVICE `active`, HELLO `ok`,
+  Expected: one row per node (eeee, and ru-1 if it exists by then) with VERSION `0.11.0`, SERVICE `active`, HELLO `ok`,
   TURN `on`. Anything else: stop and look at it with Claude before going on.
 
 - [ ] **Step 2 (owner): the same binary on every node.**
 
 ```bash
-ls -l dist/otter-node_0.11.0_linux_amd64 dist/otter-node_0.11.0_linux_arm64 && (cd dist && sha256sum -c SHA256SUMS --ignore-missing)
-deploy/upgrade-all.sh 0.11.0 --no-news
+ls -l dist/otter-node_0.12.0_linux_amd64 dist/otter-node_0.12.0_linux_arm64 && (cd dist && sha256sum -c SHA256SUMS --ignore-missing)
+deploy/upgrade-all.sh 0.12.0 --no-news
 ```
 
-  Expected: `sha256sum` prints `OK` for both binaries; then for each node `==> upgrading LABEL (…) from 0.10.1 to 0.11.0`,
-  `==> backing up the database …`, `==> swapping binaries`, `==> upgraded to 0.11.0`, `==> upgrade of root@… done`, the
-  TURN summary `LABEL … upgraded 0.10.1 → 0.11.0, TURN ok`, and finally `==> all selected nodes are on 0.11.0`, exit 0.
+  Expected: `sha256sum` prints `OK` for both binaries; then for each node `==> upgrading LABEL (…) from 0.11.0 to 0.12.0`,
+  `==> backing up the database …`, `==> swapping binaries`, `==> upgraded to 0.12.0`, `==> upgrade of root@… done`, the
+  TURN summary `LABEL … upgraded 0.11.0 → 0.12.0, TURN ok`, and finally `==> all selected nodes are on 0.12.0`, exit 0.
   (If M9 changed the script's wording, the meaning is the same: upgraded, health ok, TURN ok.) On eeee, afterwards:
   `ssh root@<eeee> 'ss -ltnp'` still lists the host's other services, and the owner checks that they answer.
-  **Rollback of this step:** `deploy/upgrade-all.sh 0.10.1 --no-news` (0.11.0 adds no database migration, so 0.10.1
+  **Rollback of this step:** `deploy/upgrade-all.sh 0.11.0 --no-news` (0.12.0 adds no database migration, so 0.11.0
   runs on the same database; `upgrade.sh` already rolls a node back by itself if its health check fails).
 
 - [ ] **Step 3 (owner): set the video rate on every node, one at a time.**
@@ -3841,14 +3841,14 @@ for l in $(deploy/hosts.sh list | awk '$2 != "-" {print $1}'); do deploy/turn-kb
 - [ ] **Step 4 (owner, read-only): gate — no APK until this is clean.**
 
 ```bash
-deploy/status.sh | awk 'NR > 1 && ($3 != "0.11.0" || $NF != "on")'
+deploy/status.sh | awk 'NR > 1 && ($3 != "0.12.0" || $NF != "on")'
 deploy/hosts.sh list | while read -r l t p; do
   [ "$t" = "-" ] && { echo "== $l: NO SSH TARGET"; continue; }
   echo "== $l"; ssh -n -p "$p" "$t" "journalctl -u otter-node -o cat --since '-2 h' | grep '\"msg\":\"turn on\"' | tail -1"
 done
 ```
 
-  Expected: the `awk` line prints **nothing** (every node 0.11.0 with TURN on); every node's line contains
+  Expected: the `awk` line prints **nothing** (every node 0.12.0 with TURN on); every node's line contains
   `"relay_kbps":2000`. If a node is missing or shows another rate, repeat Step 2/3 for it (`--only LABEL`) before going on.
   (Columns per `status.sh`'s header: LABEL TARGET VERSION … TURN; if M9 changed the column order, check the VERSION and
   TURN columns by eye instead.)
@@ -3856,13 +3856,13 @@ done
 - [ ] **Step 5 (owner): publish the APK.**
 
 ```bash
-deploy/release-apk.sh 0.11.0 ~/Documents/Projects/OttterMSG/otter-android/app/build/outputs/apk/release/app-release.apk
+deploy/release-apk.sh 0.12.0 ~/Documents/Projects/OttterMSG/otter-android/app/build/outputs/apk/release/app-release.apk
 ```
 
-  Expected: the APK copied to every node and the news dialog with `dist/news/0.11.0.md` (from Task 17); answer it as
+  Expected: the APK copied to every node and the news dialog with `dist/news/0.12.0.md` (from Task 17); answer it as
   usual. Phones update via «Обновить» in «Новости Выдры». **Rollback:** the APK cannot be pulled back from phones that
-  installed it; if 0.11.0 misbehaves, a 0.11.1 fix follows. Nodes stay compatible with 0.10.x phones (audio calls
-  unchanged; 0.10.x ignores `CallMedia`).
+  installed it; if 0.12.0 misbehaves, a 0.12.1 fix follows. Nodes stay compatible with 0.11.x phones (audio calls
+  unchanged; 0.11.x ignores `CallMedia`).
 
 - [ ] **Step 6 (owner, phones + read-only on nodes): real-network rows.** Phone rows 13–18 of
   `otter-android/docs/m10-manual-test.md`; after row 13 read the bit-rate lines on the node(s) used:
