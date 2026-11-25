@@ -156,11 +156,20 @@ message GroupContext { bytes group_id = 1; }
 
 **Call signaling (M8, D78).** `CallMessage{call_id (16 random bytes, chosen by the caller), oneof kind {offer
 CallOffer{sdp, restart}, answer CallAnswer{sdp}, candidates IceCandidates{repeated IceCandidate{sdp_mid,
-sdp_mline_index, candidate}}, hangup CallHangup{reason NORMAL|BUSY|DECLINED|TIMEOUT|FAILED}}}`. Sent 1:1 as an
+sdp_mline_index, candidate}}, hangup CallHangup{reason NORMAL|BUSY|DECLINED|TIMEOUT|FAILED},
+media CallMedia{camera_on, paused} = 6 (M10)}}`. Sent 1:1 as an
 ordinary Signal-encrypted envelope, **urgent**, record `expires_ms = created + 120 000` (nodes stop delivering and
 purge it after that). Only the offer gets a receipt: DELIVERED with message id = `call_id` (the caller shows
 «Звонит…»). The SDP carries the DTLS fingerprints, so nodes and TURN relays cannot intercept the media. Apps
 before 0.8.0 ignore the `call` case (they ack it, show nothing, but may create an empty direct chat).
+
+**Camera state (M10, D125).** `CallMessage.media = 6` → `CallMedia{camera_on, paused}`, sent by each phone whenever its
+camera state changes: tap on/off, the weak-link pause (`paused = true`) and its end, the call screen hidden
+(`camera_on = false`) and shown again. Same Signal-encrypted 1:1 envelope and 2-minute record expiry as the other call
+messages but **not urgent** (it must not use the per-sender call-wake budget, M9 Task 46; the peer is connected
+because of the call). Every call negotiates one audio and one video transceiver; video starts and stops without a
+new offer. Apps before 0.12.0 ignore `media` (unknown oneof case). An offer without a video section, or an answer whose
+video section is not `sendrecv`, means "the peer cannot do video".
 
 ### Groups (M3)
 
