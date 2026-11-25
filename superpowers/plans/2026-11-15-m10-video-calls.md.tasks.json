@@ -4,13 +4,13 @@
     {
       "id": 1,
       "subject": "Task 1: Branches, `CallMedia` proto (field 6), protocol doc",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The camera-state message exists on the wire in both repos and is documented.\n\n**Verify:** `cd otter-server && make gen && go test ./internal/proto/... -count=1` → `ok`;\n\nSee plan section 'Task 1: Branches, `CallMedia` proto (field 6), protocol doc' in 2026-11-15-m10-video-calls.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"core/data/src/test/kotlin/app/ottermsg/core/data/calls/CallMediaProtoTest.kt\", \"docs/02-protocol.md\", \"otter-android/core/data/src/test/kotlin/app/ottermsg/core/data/calls/CallMediaProtoTest.kt\", \"otter-android/core/proto/src/main/proto/otter/v1/content.proto\", \"otter-server/internal/proto/otterv1/call_media_test.go\", \"otter-server/internal/proto/otterv1/content.pb.go\", \"otter-server/proto/otter/v1/content.proto\"], \"verifyCommand\": \"`cd otter-server && make gen && go test ./internal/proto/... -count=1` → `ok`;\", \"acceptanceCriteria\": [\"Branch `m10-video` exists in `otter-server`, `otter-android`, `docs` (from `main` after all of M9).\", \"`CallMessage.media` has field number 6 and round-trips `camera_on` and `paused` in Go and Kotlin; `buf lint` passes.\", \"`diff otter-server/proto/otter/v1/content.proto otter-android/core/proto/src/main/proto/otter/v1/content.proto` prints nothing.\", \"`docs/02-protocol.md` describes `CallMedia` (non-urgent, 2-min expiry, old apps ignore it).\"]}\n```"
     },
     {
       "id": 2,
       "subject": "Task 2: Node — `relay_kbps` default 2000, rate in the `turn on` line",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** A node started without an explicit `relay_kbps` relays up to 2000 kbit/s per allocation and direction, and\n\n**Verify:** `cd otter-server && go test ./internal/config/ ./internal/turnsrv/ -count=1 -race` → `ok`\n\nSee plan section 'Task 2: Node — `relay_kbps` default 2000, rate in the `turn on` line' in 2026-11-15-m10-video-calls.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"internal/config/turn_test.go\", \"internal/turnsrv/server_test.go\", \"otter-server/README.md:102\", \"otter-server/internal/config/config.go:196\", \"otter-server/internal/config/turn_test.go:21\", \"otter-server/internal/turnsrv/server.go:287-288\", \"otter-server/internal/turnsrv/server_test.go\"], \"verifyCommand\": \"`cd otter-server && go test ./internal/config/ ./internal/turnsrv/ -count=1 -race` → `ok`\", \"acceptanceCriteria\": [\"`[turn]` without `relay_kbps` → `Turn.RelayKbps == 2000`; an explicit `relay_kbps = 200` still loads as 200.\", \"The `turn on` JSON log line contains `\\\"relay_kbps\\\":<value>`.\"]}\n```",
       "blockedBy": [
         1
@@ -19,7 +19,7 @@
     {
       "id": 3,
       "subject": "Task 3: Node — one bit-rate log line per closed allocation (+ meshsim)",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** When an allocation ends the node logs `turn allocation closed` with the TURN user id, duration, average and\n\n**Verify:** `cd otter-server && go test ./internal/turnsrv/ -count=1 -race && go test ./internal/meshsim/ -run 'Turn|CallRelay' -count=1 -race` → `ok`\n\nSee plan section 'Task 3: Node — one bit-rate log line per closed allocation (+ meshsim)' in 2026-11-15-m10-video-calls.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"internal/meshsim/harness_test.go\", \"internal/meshsim/turn_test.go\", \"internal/turnsrv/relay_test.go\", \"otter-server/internal/meshsim/harness_test.go\", \"otter-server/internal/meshsim/turn_test.go\", \"otter-server/internal/turnsrv/relay.go\", \"otter-server/internal/turnsrv/relay_test.go\", \"otter-server/internal/turnsrv/server.go:178-183\"], \"verifyCommand\": \"`cd otter-server && go test ./internal/turnsrv/ -count=1 -race && go test ./internal/meshsim/ -run 'Turn|CallRelay' -count=1 -race` → `ok`\", \"acceptanceCriteria\": [\"One line per allocation, written once (a second `Close` writes nothing), with fields `user`, `duration_s`,\", \"Peak = busiest one-second window; drops counted are rate-limiter drops only (not own-address blocks).\", \"meshsim: after two phones relay through one node and one allocation closes, the node log has the line, and it\"]}\n```",
       "blockedBy": [
         2
@@ -28,7 +28,7 @@
     {
       "id": 4,
       "subject": "Task 4: Deploy — `turn-kbps.sh` sets `relay_kbps` on a node with check and rollback",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The owner can set (and undo) `[turn] relay_kbps` on one node with one command that validates the new\n\n**Verify:** `T=$(mktemp -d); git ls-files -z | xargs -0 tar -c | tar -x -C \"$T\"; cp deploy/turn-kbps.sh \"$T/deploy/\"; (cd \"$T\" && bash deploy/test/scripts_test.sh)` → `scripts test: ok`\n\nSee plan section 'Task 4: Deploy — `turn-kbps.sh` sets `relay_kbps` on a node with check and rollback' in 2026-11-15-m10-video-calls.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"deploy/README.md\", \"deploy/test/scripts_test.sh\", \"deploy/turn-kbps.sh\", \"otter-server/deploy/README.md\", \"otter-server/deploy/test/scripts_test.sh\", \"otter-server/deploy/turn-kbps.sh\"], \"verifyCommand\": \"`T=$(mktemp -d); git ls-files -z | xargs -0 tar -c | tar -x -C \\\"$T\\\"; cp deploy/turn-kbps.sh \\\"$T/deploy/\\\"; (cd \\\"$T\\\" && bash deploy/test/scripts_test.sh)` → `scripts test: ok`\", \"acceptanceCriteria\": [\"`turn-kbps.sh LABEL KBPS` refuses: missing/extra arguments, a non-number, a node without an SSH target, a node\", \"Remote part: exactly one `relay_kbps = KBPS` line, directly under `[turn]`, other lines and sections kept;\", \"A refused check leaves `node.toml` untouched and does not restart.\"]}\n```",
       "blockedBy": [
         3
@@ -170,5 +170,5 @@
       ]
     }
   ],
-  "lastUpdated": "2026-11-15T12:00:00Z"
+  "lastUpdated": "2026-11-25T23:43:44Z"
 }

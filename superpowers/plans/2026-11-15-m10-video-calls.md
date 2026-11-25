@@ -3887,3 +3887,5 @@ ssh -p "$p" "$t" "journalctl -u otter-node -o cat --since '-30 min' | grep '\"tu
    and 15 s ≥ 400 kbit/s inside a burst resumes video. On a truly bad link this costs a few seconds of slightly worse
    audio every 2 minutes; the other phone keeps the «Видео приостановлено» notice during a burst. (Alternative: no
    automatic resume — the camera stays paused until either person taps it off and on again.)
+
+**Answer (owner, 2026-11-26):** question 1 — test bursts, as recommended.
