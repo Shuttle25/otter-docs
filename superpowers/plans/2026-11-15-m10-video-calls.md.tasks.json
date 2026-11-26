@@ -37,7 +37,7 @@
     {
       "id": 5,
       "subject": "Task 5: Android — video model, `MediaEngine` additions, `FakeEngine`",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The JVM-testable types every later task uses exist, and the test fake implements the new engine calls.\n\n**Verify:** `cd otter-android && ./gradlew :core:data:testDebugUnitTest --tests '*VideoModelTest' --tests '*CallManagerTest' :feature:calls:compileDebugKotlin` → `BUILD SUCCESSFUL`\n\nSee plan section 'Task 5: Android — video model, `MediaEngine` additions, `FakeEngine`' in 2026-11-15-m10-video-calls.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"core/data/src/test/kotlin/app/ottermsg/core/data/calls/VideoModelTest.kt\", \"feature/calls/.../WebRtcEngine.kt\", \"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/calls/CallModels.kt\", \"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/calls/MediaEngine.kt\", \"otter-android/core/data/src/test/kotlin/app/ottermsg/core/data/calls/CallManagerTest.kt\", \"otter-android/core/data/src/test/kotlin/app/ottermsg/core/data/calls/VideoModelTest.kt\"], \"verifyCommand\": \"`cd otter-android && ./gradlew :core:data:testDebugUnitTest --tests '*VideoModelTest' --tests '*CallManagerTest' :feature:calls:compileDebugKotlin` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`VideoProfile.NORMAL` = 1280×720, 30 fps, 1 500 000 bit/s; `VideoProfile.SAVER` = 640×360, 20 fps, 500 000 bit/s.\", \"`VideoState.showRemote` = frames arriving **and** (no `CallMedia` yet, or the last one says on and not paused);\", \"`MediaEngine` has `setCamera`, `setPaused`, `switchCamera`, `setSaver`, `stats`, `peerVideo`; `MediaListener` has\", \"`./gradlew :core:data:testDebugUnitTest :feature:calls:compileDebugKotlin` is green (all M8 tests still pass).\"]}\n```",
       "blockedBy": [
         4
@@ -46,7 +46,7 @@
     {
       "id": 6,
       "subject": "Task 6: Android — `VideoWatchdog` (pause, test bursts, resume, no flapping)",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** A pure rule turns one bandwidth sample per second into pause / burst / resume decisions exactly as D126 says.\n\n**Verify:** `cd otter-android && ./gradlew :core:data:testDebugUnitTest --tests '*VideoWatchdogTest'` → `BUILD SUCCESSFUL`\n\nSee plan section 'Task 6: Android — `VideoWatchdog` (pause, test bursts, resume, no flapping)' in 2026-11-15-m10-video-calls.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/calls/VideoWatchdog.kt\", \"otter-android/core/data/src/test/kotlin/app/ottermsg/core/data/calls/VideoWatchdogTest.kt\"], \"verifyCommand\": \"`cd otter-android && ./gradlew :core:data:testDebugUnitTest --tests '*VideoWatchdogTest'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"Sending: samples < 150 kbit/s for 10 s in a row → `PAUSE`; one sample ≥ 150 or an unknown sample restarts the count.\", \"Paused: a test burst (`PROBE_START`) 15 s after the pause, then 30 s, 60 s, every 120 s after failed bursts.\", \"Burst: ≥ 400 kbit/s for 15 s in a row → `RESUME`; still < 400 after the first 5 s, or any dip below 400 once it\", \"Alternating 140/160 for 2 min never pauses; alternating 390/410 during bursts never resumes.\"]}\n```",
       "blockedBy": [
         5
@@ -55,7 +55,7 @@
     {
       "id": 7,
       "subject": "Task 7: Android — `CallStateMachine` video rules; only a tap starts the camera",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The pure machine owns the video state: camera on/off only from a tap, answering keeps the camera off, the\n\n**Verify:** `cd otter-android && ./gradlew :core:data:testDebugUnitTest --tests '*VideoPrivacyTest' --tests '*VideoStateMachineTest' --tests '*CallStateMachineTest'` → `BUILD SUCCESSFUL`\n\nSee plan section 'Task 7: Android — `CallStateMachine` video rules; only a tap starts the camera' in 2026-11-15-m10-video-calls.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/calls/CallStateMachine.kt\", \"otter-android/core/data/src/test/kotlin/app/ottermsg/core/data/calls/VideoPrivacyTest.kt\", \"otter-android/core/data/src/test/kotlin/app/ottermsg/core/data/calls/VideoStateMachineTest.kt\"], \"verifyCommand\": \"`cd otter-android && ./gradlew :core:data:testDebugUnitTest --tests '*VideoPrivacyTest' --tests '*VideoStateMachineTest' --tests '*CallStateMachineTest'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`StartCamera` appears **only** in the result of `UserCamera(on = true)`, and only in Outgoing/Connecting/Active\", \"Accept with the caller's camera on → our camera stays off, `remote` recorded; Incoming never offers the camera.\", \"`PeerVideo(false)` with the camera on → `StopCamera`; later taps do nothing; no `SendMedia` to an old peer.\", \"`ScreenVisible(false)` with the camera on → `SetVideoPaused(true)` + `SendMedia(cameraOn = false)`; visible again\", \"Watchdog: in Active with the camera on, 10 s under 150 → `SetVideoPaused(true)` + `SendMedia(paused = true)`;\", \"The end of a call resets `video` (keeps `hidden`).\"]}\n```",
       "blockedBy": [
         6
@@ -64,7 +64,7 @@
     {
       "id": 8,
       "subject": "Task 8: Android — `CallManager` video, `CallMedia` send/receive (non-urgent), sampling",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** `CallManager` connects the machine's video effects to the engine and to signaling, feeds remote `CallMedia`,\n\n**Verify:** `cd otter-android && ./gradlew :core:data:testDebugUnitTest --tests '*CallManagerVideoTest' --tests '*CallManagerTest' --tests '*CallSignalingTest'` → `BUILD SUCCESSFUL`\n\nSee plan section 'Task 8: Android — `CallManager` video, `CallMedia` send/receive (non-urgent), sampling' in 2026-11-15-m10-video-calls.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/calls/CallManager.kt\", \"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/calls/CallSignaling.kt\", \"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/settings/Settings.kt\", \"otter-android/core/data/src/test/kotlin/app/ottermsg/core/data/calls/CallManagerVideoTest.kt\"], \"verifyCommand\": \"`cd otter-android && ./gradlew :core:data:testDebugUnitTest --tests '*CallManagerVideoTest' --tests '*CallManagerTest' --tests '*CallSignalingTest'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`userCamera(true)` in an active call with a 0.11 peer → engine `camera:true`, `paused:false`; a non-urgent\", \"Offer + caller's `CallMedia{camera_on}` + accept + ICE + frames → engine never gets `camera:true`;\", \"Engine `peerVideo() == false` after the answer → `video.peerVideo == false`; taps do nothing; no `CallMedia` sent.\", \"A stats estimate of 100 kbit/s for > 10 s → `paused:true` and `CallMedia{paused}`; 900 kbit/s afterwards →\", \"Settings saver on → engine `setSaver(true)` right after it opens; `setSaver(false)` in the call changes only this call.\", \"Hidden screen → `paused:true` + `CallMedia{camera_on = false}`; visible → `paused:false` + `CallMedia{camera_on}`;\", \"Hang-up closes the engine and resets `video` to `VideoState()`.\", \"`CallSignaling` sends `media` non-urgent (other kinds stay urgent).\"]}\n```",
       "blockedBy": [
         7
@@ -73,7 +73,7 @@
     {
       "id": 9,
       "subject": "Task 9: Android — «Экономить трафик в видеозвонках» setting and switch",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** A Settings switch (default off) right under «Звонки только через сервер» makes every call start with the\n\n**Verify:** `cd otter-android && ./gradlew :core:data:testDebugUnitTest --tests '*VideoSaverSettingTest' :feature:settings:testDebugUnitTest --tests '*CallSettingsTest'` → `BUILD SUCCESSFUL`\n\nSee plan section 'Task 9: Android — «Экономить трафик в видеозвонках» setting and switch' in 2026-11-15-m10-video-calls.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"core/data/src/test/kotlin/app/ottermsg/core/data/settings/VideoSaverSettingTest.kt\", \"otter-android/core/data/src/main/kotlin/app/ottermsg/core/data/settings/Settings.kt\", \"otter-android/core/data/src/test/kotlin/app/ottermsg/core/data/settings/VideoSaverSettingTest.kt\", \"otter-android/feature/settings/src/main/kotlin/app/ottermsg/feature/settings/SettingsScreen.kt\", \"otter-android/feature/settings/src/main/res/values/strings.xml\", \"otter-android/feature/settings/src/test/kotlin/app/ottermsg/feature/settings/CallSettingsTest.kt\"], \"verifyCommand\": \"`cd otter-android && ./gradlew :core:data:testDebugUnitTest --tests '*VideoSaverSettingTest' :feature:settings:testDebugUnitTest --tests '*CallSettingsTest'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`Settings.videoSaver()` false by default, persists, observable.\", \"`SettingsViewModel.videoSaver` is false before the store answers; `setVideoSaver(true)` saves it.\", \"`CallSettingsRows` shows «Экономить трафик в видеозвонках» with the caption «Видео до 360p и не больше\"]}\n```",
       "blockedBy": [
         8
@@ -82,7 +82,7 @@
     {
       "id": 10,
       "subject": "Task 10: Android — `WebRtcEngine` video (transceiver, `setTrack`, camera, caps, saver, switch, stats, EGL)",
-      "status": "pending",
+      "status": "in_progress",
       "description": "**Goal:** The real engine negotiates a track-less `sendrecv` video transceiver in every call, attaches/detaches the\n\n**Verify:** `cd otter-android && ./gradlew :feature:calls:testDebugUnitTest --tests '*StatsParseTest' :app:assembleDebug` → `BUILD SUCCESSFUL`\n\nSee plan section 'Task 10: Android — `WebRtcEngine` video (transceiver, `setTrack`, camera, caps, saver, switch, stats, EGL)' in 2026-11-15-m10-video-calls.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"feature/calls/src/test/kotlin/app/ottermsg/feature/calls/StatsParseTest.kt\", \"otter-android/app/src/main/java/app/ottermsg/calls/CallModule.kt\", \"otter-android/feature/calls/src/main/kotlin/app/ottermsg/feature/calls/StatsParse.kt\", \"otter-android/feature/calls/src/main/kotlin/app/ottermsg/feature/calls/VideoSinks.kt\", \"otter-android/feature/calls/src/main/kotlin/app/ottermsg/feature/calls/WebRtcEngine.kt\", \"otter-android/feature/calls/src/test/kotlin/app/ottermsg/feature/calls/StatsParseTest.kt\"], \"verifyCommand\": \"`cd otter-android && ./gradlew :feature:calls:testDebugUnitTest --tests '*StatsParseTest' :app:assembleDebug` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`parseMediaStats` reads `availableOutgoingBitrate` from the selected pair (via `transport.selectedCandidatePairId`,\", \"Offerer adds the video transceiver (`SEND_RECV`, stream `s0`) in `offer()` once; answerer takes the transceiver the\", \"`setCamera(true)` opens the front camera (or the test capturer), feeds the local sink, attaches the track unless\", \"`./gradlew :app:assembleDebug` builds.\"]}\n```",
       "blockedBy": [
         9
@@ -91,7 +91,7 @@
     {
       "id": 11,
       "subject": "Task 11: Android — instrumented loopback smoke test",
-      "status": "pending",
+      "status": "in_progress",
       "description": "**Goal:** On an emulator two real `WebRtcEngine`s in one process connect over loopback; a camera (a Y4M file through\n\n**Verify:** with an emulator running: `cd otter-android && ANDROID_SERIAL=emulator-5554 ./gradlew :feature:calls:connectedDebugAndroidTest` → `BUILD SUCCESSFUL`, report shows 2 tests passed\n\nSee plan section 'Task 11: Android — instrumented loopback smoke test' in 2026-11-15-m10-video-calls.md for files, code and steps.\n\n```json:metadata\n{\"files\": [\"feature/calls/build.gradle.kts\", \"feature/calls/src/androidTest/AndroidManifest.xml\", \"otter-android/docs/m10-manual-test.md\", \"otter-android/feature/calls/build.gradle.kts\", \"otter-android/feature/calls/src/androidTest/AndroidManifest.xml\", \"otter-android/feature/calls/src/androidTest/kotlin/app/ottermsg/feature/calls/VideoLoopbackTest.kt\"], \"verifyCommand\": \"with an emulator running: `cd otter-android && ANDROID_SERIAL=emulator-5554 ./gradlew :feature:calls:connectedDebugAndroidTest` → `BUILD SUCCESSFUL`, report shows 2 tests passed\", \"acceptanceCriteria\": [\"Before `setCamera(true)` the receiver sees 0 frames; after it ≥ 10 frames within 15 s, `onRemoteVideo(true)`,\", \"After `setPaused(true)` the sender's `sentVideoKbps == 0` and the receiver's frame count stops; the receiver gets\", \"New caller ↔ old (`video = false`) callee and old caller ↔ new callee: the new side's `peerVideo() == false`.\", \"Passes on the API 34 and API 30 emulators.\"]}\n```",
       "blockedBy": [
         10
@@ -170,5 +170,5 @@
       ]
     }
   ],
-  "lastUpdated": "2026-11-25T23:43:44Z"
+  "lastUpdated": "2026-11-25T23:51:45Z"
 }

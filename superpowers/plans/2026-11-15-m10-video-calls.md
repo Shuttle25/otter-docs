@@ -3889,3 +3889,52 @@ ssh -p "$p" "$t" "journalctl -u otter-node -o cat --since '-30 min' | grep '\"tu
    automatic resume — the camera stays paused until either person taps it off and on again.)
 
 **Answer (owner, 2026-11-26):** question 1 — test bursts, as recommended.
+
+## Amendment A (2026-11-26): video is added after the answer (owner decision)
+
+**Why.** Task 11 on `m8_api34` showed that a 0.11 app **crashes natively** (`libjingle_peerconnection_so.so`,
+`libc++ Hardening assertion !empty() failed: front() called on an empty vector`, SIGABRT in `setRemoteDescription`)
+when an offer contains `m=video … a=sendrecv`: its factory has no video codec factories. The "Verified facts" row
+"Old app answering a video offer" (old app answers `recvonly`) is **wrong**. Old caller → new callee works (the offer
+has only `m=audio`). The owner chose: the first offer stays audio-only; video is added by one re-offer after the
+answer, only towards a peer that said it can do video.
+
+**Protocol (D125, revised).**
+```proto
+message CallOffer {
+  string sdp = 1;
+  bool restart = 2;
+  bool video = 3;      // M10: the sender's app can do video (0.12+); old apps ignore it
+  bool add_video = 4;  // M10: re-offer within the call (same call_id) that adds the video section; never urgent
+}
+message CallAnswer {
+  string sdp = 1;
+  bool video = 2;      // M10: the answerer's app can do video (0.12+)
+}
+```
+* Every offer from 0.12+ (first, ICE restart, add-video) sets `video = true`; every answer from 0.12+ sets `video = true`.
+* The **first offer never contains a video section** (all apps). `answer()` on a first offer never creates a video
+  transceiver either.
+* Only the **caller** (outgoing side; it already owns ICE restarts) re-offers. After `applyAnswer` of the first answer,
+  if `answer.video == true`: `engine.addVideo()` (creates the track-less `sendrecv` video transceiver) →
+  `engine.offer(restart = false)` → send `CallOffer{sdp, add_video = true, video = true}`. The callee, on an
+  `add_video` offer for the current call, does `engine.answer(sdp)` (takes the transceiver `setRemoteDescription`
+  created, sets `SEND_RECV`, as Task 10 already does for the answerer) and sends `CallAnswer{video = true}`; the caller
+  `applyAnswer`s it. Then both sides post `PeerVideo(engine.peerVideo())` (= `currentDirection == SEND_RECV`).
+* One negotiation at a time on the caller: an ICE restart due while the add-video exchange is pending waits for it to
+  finish (or for its 10 s timeout); an add-video due during a restart waits for the restart's answer.
+* `PeerVideo(false)` immediately when the first answer has `video == false` (old callee), or when the callee sees a
+  first offer with `video == false` (old caller). No `add_video` answer within **10 s** → `PeerVideo(false)` for this
+  call (camera button shows «У собеседника старая версия» — acceptable rare fallback).
+* Until `PeerVideo` arrives the camera button is disabled (video state `peerVideo == null`), as Task 7 already models.
+* Urgency: only a first offer (`restart == false && add_video == false`) is urgent; `add_video` offers, answers and
+  `CallMedia` are not. ICE-restart offers keep today's behaviour.
+* Delivery receipt (`transport.delivered`) only for first offers, never for `restart` or `add_video` offers.
+* Camera on/off after that is still `setTrack` only (no further renegotiation).
+
+**Tasks affected.** Task 1 (proto fields, server `make gen`, android sync, `02-protocol.md`), Task 8 (CallManager /
+CallSignaling: capability fields, add-video re-offer flow, timeout, urgency, receipts), Task 10 (`WebRtcEngine`:
+no video transceiver on the first offer; new `MediaEngine.addVideo()`; `peerVideo()` unchanged; FakeEngine records
+`addVideo`), Task 11 (old-peer test both ways must pass: new caller → 0.11-style callee connects audio-only, no
+crash, `peerVideo` false on both; plus new ↔ new reaches `peerVideo` true via the re-offer), Task 17 (D125 text,
+spec "As built").
