@@ -180,6 +180,25 @@ Every 0.8.0+ node can relay calls. Steps and checks (details in `otter-server/de
 * **Downgrade** below 0.8.0: remove `[turn]` first (or restore `node.toml.pre-turn`); 0.7.0 refuses the section.
   Re-installs (`push.sh`) rewrite `node.toml` from the template, which for 0.8.0+ includes `[turn]` again.
 
+## Video calls: relay rate and bit-rate log (M10, D129)
+
+Video needs 2000 kbit/s per allocation and direction (the M8 default was 200). Details in `otter-server/deploy/README.md`.
+
+* **Rollout order for 0.12.0**: every node first (`deploy/upgrade-all.sh 0.12.0`; `deploy/status.sh` shows VERSION
+  0.12.0 and TURN on), then set the rate on each node, then release the APK (`deploy/release-apk.sh 0.12.0 APK`) and
+  the 0.12.0 news. A 0.12.0 node without `relay_kbps` in `[turn]` already uses 2000; `turn-kbps.sh` makes it explicit
+  (and overrides an older explicit 200). Old apps keep working: calls with them stay audio-only.
+* **`deploy/turn-kbps.sh LABEL KBPS`** (0.12.0+ nodes with a `[turn]` section): writes `relay_kbps = KBPS` under
+  `[turn]` in `node.toml.new`, runs `otter-node check`, keeps `node.toml.pre-kbps`, swaps, restarts and confirms the
+  health check plus `"relay_kbps":KBPS` in the new `turn on` log line; otherwise it restores the previous file and
+  restarts. Prints `LABEL: TURN relay_kbps = KBPS`. Back to the M8 rate: `turn-kbps.sh LABEL 200`.
+* **Reading `turn allocation closed`** (one line per allocation, `journalctl -u otter-node -o cat | grep 'allocation
+  closed'`): `to_peer_*` is what the phone sent, `from_peer_*` what it received; `*_avg_kbps` over `duration_s`,
+  `*_peak_kbps` the busiest second (an audio call stays under ~100, a 720p video ≤ ~1600, «Экономить трафик» ≤ ~600;
+  one second can reach up to 2 × `relay_kbps` after a quiet moment, D129), `*_dropped` packets refused by the rate
+  limiter, `rate_limited` true if any. `rate_limited` true on a good link means the rate is too low for the calls on
+  that node. The line has a hashed user tag, no names, no addresses.
+
 ## Backups of nodes
 
 Not required for correctness (state is replicated and mostly temporary). For a 1-node setup,

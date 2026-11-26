@@ -155,12 +155,30 @@ message GroupContext { bytes group_id = 1; }
 ```
 
 **Call signaling (M8, D78).** `CallMessage{call_id (16 random bytes, chosen by the caller), oneof kind {offer
-CallOffer{sdp, restart}, answer CallAnswer{sdp}, candidates IceCandidates{repeated IceCandidate{sdp_mid,
-sdp_mline_index, candidate}}, hangup CallHangup{reason NORMAL|BUSY|DECLINED|TIMEOUT|FAILED}}}`. Sent 1:1 as an
-ordinary Signal-encrypted envelope, **urgent**, record `expires_ms = created + 120 000` (nodes stop delivering and
-purge it after that). Only the offer gets a receipt: DELIVERED with message id = `call_id` (the caller shows
+CallOffer{sdp, restart, video = 3 (M10), add_video = 4 (M10)}, answer CallAnswer{sdp, video = 2 (M10)}, candidates IceCandidates{repeated IceCandidate{sdp_mid,
+sdp_mline_index, candidate}}, hangup CallHangup{reason NORMAL|BUSY|DECLINED|TIMEOUT|FAILED},
+media CallMedia{camera_on, paused} = 6 (M10)}}`. Sent 1:1 as an
+ordinary Signal-encrypted envelope, **urgent** for offers only (since 0.9.1, D108; add-video offers are not, M10), record `expires_ms = created + 120 000` (nodes stop delivering and
+purge it after that). Only the first offer gets a receipt: DELIVERED with message id = `call_id` (the caller shows
 «Звонит…»). The SDP carries the DTLS fingerprints, so nodes and TURN relays cannot intercept the media. Apps
 before 0.8.0 ignore the `call` case (they ack it, show nothing, but may create an empty direct chat).
+
+**Camera state (M10, D125).** `CallMessage.media = 6` → `CallMedia{camera_on, paused}`, sent by each phone whenever its
+camera state changes: tap on/off, the weak-link pause (`paused = true`) and its end, the call screen hidden
+(`camera_on = false`) and shown again. Same Signal-encrypted 1:1 envelope and 2-minute record expiry as the other call
+messages but **not urgent** (it must not use the per-sender call-wake budget, M9 Task 46; the peer is connected
+because of the call). Apps before 0.12.0 ignore `media` (unknown oneof case).
+
+**Adding video (M10, D125, amendment A).** A 0.11 app crashes natively on an offer that contains a video section, so
+the **first offer is always audio-only**. Every offer and answer from 0.12+ sets `video = true` ("my app can do
+video"); old apps leave it false and ignore it. Only the caller adds video: after the first answer, if
+`answer.video`, it adds a track-less `sendrecv` video transceiver and sends one re-offer `CallOffer{add_video = true,
+video = true}` (same `call_id`); the callee answers it with `CallAnswer{video = true}`. The peer can do video when the
+negotiated video section is `sendrecv`. An answer or first offer with `video = false`, or no answer to the add-video
+offer within 10 s on the caller (no add-video offer within 20 s on the callee), means "the peer cannot do video" for
+this call. One negotiation at a time: an ICE restart waits for a pending add-video exchange and vice versa. Offers
+stay urgent (first and ICE-restart offers), but add-video offers, answers and `CallMedia` are not; only the first
+offer gets the DELIVERED receipt. After that, video starts and stops without a new offer (`setTrack`).
 
 ### Groups (M3)
 

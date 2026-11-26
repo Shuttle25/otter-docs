@@ -4,6 +4,24 @@ Approved by the owner 2026-11-15 (brainstorm). Was "M8.5" in the roadmap; rename
 of M9** (owner). Extends the M8 audio calls (`2026-11-13-m8-audio-calls-design.md`, D76–D81); everything not mentioned
 here stays as in M8. Versions: **app 0.12.0, server 0.12.0** (after M9.5's 0.11.0).
 
+**As built (2026-11-26), corrections to this spec** (details in `00-decisions.md` D125–D129, `09-roadmap.md` "M10 notes"):
+- **The first offer is audio-only in every call; video is added by one re-offer after the answer** (amendment A of the
+  plan, D125). The "Signaling" section's "every new call negotiates one audio and one video transceiver" and "an older
+  app answers the video section `recvonly`" are wrong: a 0.11 app **crashes natively** on an offer with `m=video`
+  (libwebrtc `front() called on an empty vector`, SIGABRT in `setRemoteDescription`; its factory has no video codecs).
+  0.12 apps set `CallOffer.video` / `CallAnswer.video`; only the caller re-offers (`CallOffer.add_video`), one
+  negotiation at a time with ICE restarts; no answer within 10 s (caller) / no add-video offer within 20 s (callee) →
+  no video in that call. The camera button stays disabled until this is known. Camera toggles are still `setTrack`
+  only. Add-video offers, answers and `CallMedia` are not urgent; the DELIVERED receipt is only for first offers.
+- Resume after a weak-link pause uses **test bursts** (owner question 1), as written above (D126).
+- While the screen is hidden or locked, sending stops and the peer gets `camera_on = false`, but the **capturer keeps
+  running** (the system camera indicator stays on). The unlock is detected by an exported `USER_PRESENT` receiver
+  (D127).
+- Manifest also declares `<uses-feature android.hardware.camera required="false">`; settings have no section headers,
+  so the saver switch is the row under «Звонки только через сервер» (D128).
+- The relay's token bucket holds one second of `relay_kbps`, so the busiest-second peak in the log can reach up to
+  2 × `relay_kbps` without drops; accepted as built (D129).
+
 ## Owner decisions
 
 1. **Camera can be switched on at any time** in any call. There is no separate "video call" type.
@@ -31,7 +49,7 @@ WebRTC's own congestion control adapts resolution and bitrate. We add:
   10 s, sending video pauses and the call stays audio. Both screens say «Видео приостановлено: слабая связь». Video
   resumes through short **test bursts** (WebRTC cannot measure spare bandwidth while only audio flows): bursts at 15 s,
   30 s, 60 s and then every 2 min after the pause; a burst stops after 5 s unless the link measures ≥ 400 kbit/s, and
-  15 s at ≥ 400 kbit/s resumes video. The other phone keeps the notice during a burst (plan D127). The camera hardware stays open while paused, and the UI keeps showing the
+  15 s at ≥ 400 kbit/s resumes video. The other phone keeps the notice during a burst (D126). The camera hardware stays open while paused, and the UI keeps showing the
   local preview.
 
 Rejected: simulcast/SVC (made for group calls; wastes uplink in 1:1), our own quality-by-network-type logic.

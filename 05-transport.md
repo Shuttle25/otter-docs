@@ -209,3 +209,10 @@ RU phone ─▶ domestic relay ◀─ ─ ICE decides ─ ─▶ foreign relay �
 * Each call adds one line to the phone's connectivity log: `call:relay-udp` / `relay-tcp` / `relay-tls` / `direct`
   / `none`, network, result, RTT, direction and duration. TURN failures on a node (bad or expired login, quota,
   listener start) go into the node's `netlog` with classes `auth`, `quota`, `listen`.
+* **Video (M10, D125, D129)** uses the **same TURN allocation** as the audio: the video section is BUNDLEd onto the
+  call's one ICE transport, so no extra ports, relays or credentials. It is added by one re-offer after the answer
+  (the first offer stays audio-only, D125). **Bit-rate budget** per allocation and direction: `[turn] relay_kbps`
+  2000 kbit/s (200 before 0.12.0) = 720p video ≤ 1.5 Mbit/s + Opus + overhead; «Экономить трафик» caps video at
+  ≤ 500 kbit/s (360p). Worst case per node 41 allocations × 2 Mbit/s ≈ 82 Mbit/s each way. On a link that cannot
+  carry video the phones pause it and keep the audio (D126). Nodes see only the bit rate, never the picture
+  (DTLS-SRTP end to end).
