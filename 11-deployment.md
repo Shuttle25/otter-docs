@@ -291,8 +291,9 @@ Foreign nodes get the upstream with `deploy/tiles-upstream.sh LABEL on` (`off` r
 0.13.0+ on the node, writes `node.toml.new`, checks it with `otter-node check`, keeps `node.toml.pre-tiles`, restarts
 the node and checks health and the `"msg":"tiles on"` log line with the expected `"upstream"` value; otherwise it
 restores the old file. The node in Russia stays **off**: it asks its peers over the peer session and never contacts a
-foreign host for maps. The cache lives in `/var/lib/otter/tiles/` (inside the sandbox's `ReadWritePaths`; not in the
-database backup; safe to delete while the node is stopped). With an upstream the node makes outbound HTTPS requests to the
+foreign host for maps. The cache lives in `/var/lib/otter/tiles/` (inside the sandbox's `ReadWritePaths`). It is not
+in the daily backups: `backup.sh --run` saves only the node database (`otter-node backup` → `/var/backups/otter/node-DATE.db`).
+The cache is safe to delete while the node is stopped. With an upstream the node makes outbound HTTPS requests to the
 upstream host (it sees the node's IP and the viewed areas, never who looks); the firewall needs no change.
 `status.sh` / `otter-node status --line` show `tiles=served/hits`; Prometheus `otter_tiles_*`. If the cache directory
 cannot be opened, the node does not start (journal: `tiles cache: …`).

@@ -337,8 +337,9 @@ Events: `hello`, `envelopes` (mailbox delivery, a `RecordBatch` of at most 100 r
 768 KiB of records, always at least one; D93), `manifest` (newer version available),
 `directory` (changes; `Empty`, sent to every logged-in session, D138: the phone re-reads its visible set and its partners by id), `prekeys_low`, `news` (`Empty`: an announcement was accepted or dropped → re-fetch `news.list`, D67).
 
-Status codes: 0 OK, 1 retry-later, 2 unauthorized, 3 invalid-signature, 4 quota, 5 not-found,
-6 revoked, 7 conflict (e.g. username taken), 9 unavailable (feature off on this node, e.g. TURN; M8).
+Status codes (`enum Status` in `api.proto`): 0 OK, 1 RETRY_LATER, 2 UNAUTHORIZED, 3 INVALID (bad request, signature
+or record), 4 NOT_FOUND, 5 CONFLICT (e.g. username taken), 6 REVOKED, 7 QUOTA, 8 INTERNAL, 9 UNAVAILABLE (feature
+off on this node, e.g. TURN; M8).
 
 Client receive limits (app 0.9.0, C17, D93): a frame ≤ 4 MiB; events received but not yet handled ≤ 16 MiB;
 `blob.get` data exactly `min(256 KiB, size − offset)`; `apk.get` data exactly `min(1 MiB, size − offset)`, the APK

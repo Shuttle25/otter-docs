@@ -180,6 +180,27 @@ validates `[turn]` and the secret (`ok turn secret … (32 bytes), relay IP:4916
 Call signaling envelopes carry a 2-minute record expiry (D78): `Store.Mailbox` skips envelopes past their
 `expires_ms`, and the janitor purges them (other envelopes still go by the 30-day receive age).
 
+## Map pieces (M11, D141; server 0.13.0)
+
+Package `internal/tiles`: `Valid` (z ≤ 14, x, y < 2^z), `Check` (≤ 1 MiB; a gzip piece must decompress completely to
+≤ 8 MiB), `Cache` (`<data_dir>/tiles/z/x/y.pbf`, root resolved through symlinks, rebuilt from the files at start, LRU
+by last use, cap `[tiles] cache_mb`, default 2048; atomic writes) and `Upstream` (HTTPS only; TileJSON URL resolved to
+`tiles[0]` or a `{z}/{x}/{y}` template; 15 s timeout, one request per piece shared by concurrent callers, ≤ 20
+requests/s, ≤ 32 pieces in flight → `ErrBusy`). `service.Tiles` answers phone RPC `tiles.get`: cache, then the own
+upstream when `[tiles] upstream` is set, otherwise the peers (`replication.Replicator.FetchTile` over the existing peer
+sessions, peer frames `PeerTileGet` / `PeerTile` 16/17, [03](03-mesh-replication.md) "Map pieces"); 600 per account
+per minute. A peer is answered by `Tiles.Local` (cache, own upstream, never further peers). The gateway runs
+`tiles.get` off the session's read loop in **4 slots per session** (apart from `blob.get`'s 4); all busy →
+`RETRY_LATER` at once. Errors and logs never carry tile coordinates. Counters `tiles_served`, `tiles_cache_hits`,
+`tiles_upstream`, `tiles_peer`, `tiles_cache_bytes` in `status.json` / Prometheus, `tiles=served/hits` in
+`status --line`. A cache that cannot be opened stops the node at start.
+
+```toml
+[tiles]                      # M11, optional; commented in 0.13.0+ bundles, set with deploy/tiles-upstream.sh
+upstream = "https://tiles.openfreemap.org/planet"   # foreign nodes only; empty = ask peers
+cache_mb = 2048
+```
+
 ## Quotas & limits (defaults, configurable)
 
 | Limit | Default |
