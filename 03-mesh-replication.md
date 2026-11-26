@@ -211,6 +211,26 @@ either:         PeerTunnelClose{stream, reason}
   stream; acks never raise the window above 32.
 * The relay sees only TLS records (sizes and timing), never the salt, the password check or the backup.
 
+### Map pieces (M11, D141; server 0.13.0)
+
+A node without `[tiles] upstream` (the node in Russia) gets the map pieces its phones ask for (`tiles.get`,
+[02](02-protocol.md)) from its peers over the **existing peer sessions**, whichever side dialed:
+
+```
+asker → peer: PeerTileGet{req, z, x, y}       peer frame 16
+peer → asker: PeerTile{req, data | missing}   peer frame 17
+```
+
+* The asker tries its live sessions one by one, the peer that answered a piece last first, 10 s each (a peer before
+  0.13.0 ignores the frame and the asker times out). The first piece that passes the checks (≤ 1 MiB; a gzip piece
+  decompresses completely to ≤ 8 MiB) is cached and returned; a bad piece is logged with the peer id and its size only
+  and the next peer is asked. No peer has it → `NOT_FOUND` to the phone.
+* The peer answers from its own cache or its own upstream (`Tiles.Local`, 12 s), **never by asking further peers**, so
+  a request cannot loop through the mesh. It serves 4 requests at a time per session (busy → `missing` at once),
+  answers `missing` for invalid coordinates or a node without tiles, and recovers from a panic without logging its
+  value. Frames outside an authenticated peer session are refused like every peer frame.
+* Coordinates are never logged on either side (a z14 piece pins a member's area).
+
 ## Deletion & garbage collection
 
 | What | When removed |

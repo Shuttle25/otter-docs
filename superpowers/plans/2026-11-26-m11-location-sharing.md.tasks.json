@@ -4,13 +4,13 @@
     {
       "id": 1,
       "subject": "Task 1: Protos (server and app)",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The new location, tile and peer messages exist in both repos and compile.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 1: Protos (server and app)).\n\n```json:metadata\n{\"files\": [\"otter-server-m11/proto/otter/v1/content.proto\", \"otter-server-m11/internal/proto/...\", \"otter-android-m11/core/proto/src/main/proto/otter/v1/*.proto\"], \"verifyCommand\": \"`cd otter-server-m11 && make gen && go build ./... && cd ../otter-android-m11 && OTTER_SERVER_DIR=../otter-server-m11 scripts/sync-proto.sh && diff -r ../otter-server-m11/proto/otter/v1 core/proto/src/main/proto/otter/v1 && nice -n 15 ./gradlew --max-workers=4 :core:proto:build` → no diff, `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`make gen` runs `buf lint` clean and regenerates Go code; `go build ./...` ok.\", \"`scripts/sync-proto.sh` copies the protos; `diff -r` between server and app proto dirs is empty.\", \"App `:core:proto` compiles.\"]}\n```"
     },
     {
       "id": 2,
       "subject": "Task 2: Server `[tiles]` config and the disk cache",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** A node reads `[tiles]` and keeps map pieces in a size-capped LRU disk cache that refuses bad pieces.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 2: Server `[tiles]` config and the disk cache).\n\n```json:metadata\n{\"files\": [\"otter-server-m11/internal/config/config.go\", \"otter-server-m11/internal/config/tiles_test.go\", \"otter-server-m11/internal/tiles/validate.go\"], \"verifyCommand\": \"`cd otter-server-m11 && nice -n 15 go test -p 4 -count=1 ./internal/config/ ./internal/tiles/` → `ok`\", \"acceptanceCriteria\": [\"No `[tiles]` section → `CacheMB = 2048`, `Upstream = \\\"\\\"`.\", \"`upstream` must be `https://` (or `http://127.0.0.1…` only in tests via the `allowPlain` test hook); `cache_mb` 64…1048576.\", \"`Valid(z,x,y)` rejects `z > 14` and `x, y ≥ 2^z`; `Check(data)` rejects empty, > 1 MiB, broken gzip, gzip > 8 MiB.\", \"Cache: `Put` then `Get` returns the bytes; total bytes stay ≤ cap after many `Put`s (least recently used removed first); a restart rebuilds the index from disk; files written atomically (tmp + rename).\"]}\n```",
       "blockedBy": [
         1
@@ -19,7 +19,7 @@
     {
       "id": 3,
       "subject": "Task 3: Server HTTPS upstream fetcher",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** A node with `upstream` fetches missing pieces once each, bounded in size, time and rate.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 3: Server HTTPS upstream fetcher).\n\n```json:metadata\n{\"files\": [\"otter-server-m11/internal/tiles/upstream.go\"], \"verifyCommand\": \"`nice -n 15 go test -p 4 -count=1 ./internal/tiles/ -run Upstream` → `ok`\", \"acceptanceCriteria\": [\"A TileJSON URL is resolved to `tiles[0]` (re-resolved after 24 h or after a 404 burst); a URL containing `{z}` is used as a template directly.\", \"200 → bytes (after `Check`); 404/204 → `ErrMissing`; other status, timeout, > 1 MiB → error.\", \"10 concurrent `Fetch` of the same piece → 1 upstream request (singleflight).\", \"More than 20 fetches/s per node → `ErrBusy` without contacting upstream.\"]}\n```",
       "blockedBy": [
         2
@@ -28,7 +28,7 @@
     {
       "id": 4,
       "subject": "Task 4: Peer tile frames",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** A node asks its peers for a piece; a peer answers from its cache or own upstream only, and a hostile peer cannot hurt the asker.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 4: Peer tile frames).\n\n```json:metadata\n{\"files\": [\"otter-server-m11/internal/replication/tiles.go\", \"otter-server-m11/internal/replication/session.go\"], \"verifyCommand\": \"`nice -n 15 go test -p 4 -count=1 ./internal/replication/ -run Tile` → `ok`\", \"acceptanceCriteria\": [\"`Replicator.FetchTile(ctx, z, x, y)` tries peers in order (last good peer first), 10 s per peer, returns the first piece that passes `tiles.Check`; all missing → `tiles.ErrMissing`.\", \"Serving side uses `TileSource.Local(ctx, z,x,y)` (cache, then own upstream) — never `FetchTile` (no loops); invalid z/x/y → `missing`; busy (`serveSem` full) → `missing` at once.\", \"A hostile peer answering with > 1 MiB, broken gzip, or an unknown `req` does not crash the session, nothing is cached, and the next peer is tried.\"]}\n```",
       "blockedBy": [
         3
@@ -37,7 +37,7 @@
     {
       "id": 5,
       "subject": "Task 5: `tiles.get` for phones, metrics, wiring",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Logged-in members get map pieces from cache → upstream → peers, limited to 600 per minute.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 5: `tiles.get` for phones, metrics, wiring).\n\n```json:metadata\n{\"files\": [\"otter-server-m11/internal/service/tiles.go\", \"internal/gateway/tiles_test.go\", \"internal/service/service.go\", \"internal/gateway/methods.go\", \"internal/metrics/metrics.go\"], \"verifyCommand\": \"`nice -n 15 go test -p 4 -count=1 ./internal/service/ ./internal/gateway/ ./internal/metrics/ ./cmd/otter-node/ -run 'Tile|Metrics|Status'` → `ok`\", \"acceptanceCriteria\": [\"Order: cache hit → `upstream.Fetch` (if configured) → `Fetcher.FetchTile` (peers) — but **only if no upstream is configured** — → `ErrNotFound`. Successful fetches are cached.\", \"`TileSource.Local` (for peers) = cache → upstream, never peers.\", \"Not logged in → `UNAUTHORIZED`; revoked → `REVOKED`; z > 14 → `INVALID`; 601st in a minute → `QUOTA`; no source configured and no peers → `NOT_FOUND`.\", \"A node without upstream never contacts the upstream test server (hit counter stays 0).\", \"`Snapshot` gains `tiles_served`, `tiles_cache_hits`, `tiles_upstream`, `tiles_peer`, `tiles_cache_bytes`; `Line()` adds `tiles=<served>/<hits>`; Prometheus `otter_tiles_*`.\"]}\n```",
       "blockedBy": [
         4
@@ -46,7 +46,7 @@
     {
       "id": 6,
       "subject": "Task 6: Deploy — `[tiles]` in new bundles, `tiles-upstream.sh`, status",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** New nodes get a commented `[tiles]` section, and the owner can turn the upstream on for one node with a single script.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 6: Deploy — `[tiles]` in new bundles, `tiles-upstream.sh`, status).\n\n```json:metadata\n{\"files\": [\"otter-server-m11/deploy/templates/node.toml.tiles\", \"deploy/tiles-upstream.sh\", \"deploy/make-bundle.sh\", \"deploy/README.md\", \"deploy/test/scripts_test.sh\"], \"verifyCommand\": \"`rm -rf /tmp/claude-1000/m11-deploy && cp -a otter-server-m11 /tmp/claude-1000/m11-deploy && (cd /tmp/claude-1000/m11-deploy && deploy/test/scripts_test.sh)` → all pass; then `rm -rf /tmp/claude-1000/m11-deploy`\", \"acceptanceCriteria\": [\"`make-bundle.sh` appends `node.toml.tiles` only when `version_ge \\\"$version\\\" 0.13.0`.\", \"`tiles-upstream.sh LABEL on|off`: refuses nodes below 0.13.0; `on` writes `upstream = \\\"https://tiles.openfreemap.org/planet\\\"` into `[tiles]` (creating the section), `off` removes the line; `otter-node check` before swap; backup `node.toml.pre-tiles`; restart; health; journal must show `\\\"msg\\\":\\\"tiles on\\\"` with the expected `\\\"upstream\\\":true|false`; otherwise rollback.\", \"Scripts test passes **in a scratch copy** (never in the real checkout).\"]}\n```",
       "blockedBy": [
         5
@@ -55,7 +55,7 @@
     {
       "id": 7,
       "subject": "Task 7: App — `NodeApi.tile`, group envelopes honour expiry",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The app can ask its node for a map piece, and group outbox items expire like 1:1 items.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 7: App — `NodeApi.tile`, group envelopes honour expiry).\n\n```json:metadata\n{\"files\": [\"otter-android-m11/core/network/.../NodeApi.kt\", \"core/network/src/test/.../NodeApiCallsTest.kt\", \"core/data/src/test/.../FakeNode.kt\", \"core/data/.../messaging/Outbox.kt\", \"core/data/src/test/.../GroupExpiryTest.kt\"], \"verifyCommand\": \"`cd otter-android-m11 && nice -n 15 ./gradlew --max-workers=4 :core:network:testDebugUnitTest :core:data:testDebugUnitTest --tests '*NodeApiCalls*' --tests '*Group*'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`tile(z,x,y): ByteArray?` returns bytes; `NOT_FOUND`/`UNAVAILABLE` → `null`; `QUOTA`/`RETRY_LATER` → `TileBusyException`; unknown method → `OldNodeException`.\", \"A group outbox item with `expiresMs` in the past is deleted without sending; a sent group record carries `expiresMs` (checked on the FakeNode's stored record).\", \"Existing group tests still pass.\"]}\n```",
       "blockedBy": [
         1
@@ -64,7 +64,7 @@
     {
       "id": 8,
       "subject": "Task 8: App — storage (kind LOCATION, `live_locations`, migration, backup)",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Location messages and live-share state are stored; backups keep pins only.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 8: App — storage (kind LOCATION, `live_locations`, migration, backup)).\n\n```json:metadata\n{\"files\": [\"core/database/.../model/MessageStatus.kt\", \"core/database/.../entity/LiveLocationEntity.kt\", \"core/database/.../OtterDatabase.kt\", \"core/database/src/test/.../MigrationTest.kt\", \"core/data/.../backup/SnapshotCodec.kt\"], \"verifyCommand\": \"`nice -n 15 ./gradlew --max-workers=4 :core:database:testDebugUnitTest :core:data:testDebugUnitTest --tests '*Migration*' --tests '*Snapshot*' --tests '*Backup*'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"Migration test N → N+1 passes and the table exists with the columns below.\", \"`LiveLocationDao`: `upsert`, `get(messageId)`, `observeActive(conversationId, now)`, `ownActive()`, `markStopped(messageId)`.\", \"Backup export keeps LOCATION messages (body + `systemData` = the `Location` bytes) with `live_period_s` reset to 0; `live_locations` is not exported.\", \"LOCATION counts in unread receipts and `retry` (re-sends the original content).\"]}\n```",
       "blockedBy": [
         7
@@ -73,7 +73,7 @@
     {
       "id": 9,
       "subject": "Task 9: App — sending pins, live starts, updates and stops",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** One `LocationSender` builds and queues every location content correctly for 1:1 and groups.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 9: App — sending pins, live starts, updates and stops).\n\n```json:metadata\n{\"files\": [\"core/data/.../location/LocationCodec.kt\", \"core/data/.../messaging/MessageRepository.kt\", \"core/data/src/test/.../location/LocationSenderTest.kt\"], \"verifyCommand\": \"`nice -n 15 ./gradlew --max-workers=4 :core:data:testDebugUnitTest --tests '*location*'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`sendPin(cid, fix)` / `startLive(cid, fix, periodS)`: one PENDING LOCATION message (urgent, receipts as text), `DataMessage.text` = `📍 Местоположение: 55.75580, 37.61730\\\\ngeo:55.75580,37.61730`; `startLive` also inserts an outgoing `live_locations` row.\", \"`sendUpdate(shareId, fix)`: outbox item with `urgent = false`, `messageLocalId = null`, `expiresMs = now + 300_000`; 1:1 to the peer, groups via the group path; **never** creates a message row.\", \"`stop(shareId)`: update with `stopped = true`, `expiresMs = liveUntil` (open-ended: `now + 7 days`), marks the row stopped.\", \"`UpdatePolicy.shouldSend(last, fix, now)`: true if no last; false if < 30 s since last; true if moved ≥ 30 m; true if ≥ 5 min since last; else false.\", \"Every enqueue is followed by a send trigger (`SendTrigger.now()`, implemented in `:app` by `WakeScheduler.wakeNow()`).\"]}\n```",
       "blockedBy": [
         8
@@ -82,7 +82,7 @@
     {
       "id": 10,
       "subject": "Task 10: App — receiving locations, hostile updates lose",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Incoming pins become LOCATION messages and live updates move only the right share.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 10: App — receiving locations, hostile updates lose).\n\n```json:metadata\n{\"files\": [\"core/data/.../location/LiveLocationApplier.kt\", \"core/data/.../messaging/MailboxReceiver.kt\", \"core/data/src/test/.../location/LiveLocationReceiveTest.kt\"], \"verifyCommand\": \"`nice -n 15 ./gradlew --max-workers=4 :core:data:testDebugUnitTest --tests '*location*' --tests '*Mailbox*' --tests '*GroupReceiver*' --tests '*GroupFlow*'` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"A received DataMessage with `location` → `kind = LOCATION`, `systemData = location bytes`, `body` = fallback text; live (`period != 0`) → incoming `live_locations` row with `liveUntilMs = LocationCodec.liveUntil(min(sentMs, receivedMs), period)`.\", \"A `LocationUpdate` is applied only if the share exists, `sender == share.senderId`, (groups) the envelope's group matches and sender is a member, share not stopped, `now < liveUntilMs`, `fixMs > share.fixMs`. Otherwise dropped; always marked seen and acked; never creates a conversation or message.\", \"`stopped = true` from the author marks the share stopped (even after the live end).\", \"Hostile tests: a third contact's update for A's share does not move it; an older `fixMs` is ignored; an update after the live end is ignored; a sender with `sent_ms` far in the future does not extend the share; a 1:1 update for an unknown share creates no chat.\"]}\n```",
       "blockedBy": [
         9
@@ -91,7 +91,7 @@
     {
       "id": 11,
       "subject": "Task 11: App — position source and `LiveLocationService`",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Sharing runs in a `location` foreground service that sends updates through the outbox and stops cleanly, with no persistent connection.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 11: App — position source and `LiveLocationService`).\n\n```json:metadata\n{\"files\": [\"core/data/.../location/PositionSource.kt\", \"app/.../location/PositionSources.kt\", \"app/src/main/AndroidManifest.xml\", \"app/.../notify/Channels.kt\", \"app/.../OtterApp.kt\", \"app/build.gradle.kts\", \"core/data/src/test/.../location/LiveSharesTest.kt\"], \"verifyCommand\": \"`nice -n 15 ./gradlew --max-workers=4 :core:data:testDebugUnitTest --tests '*LiveShares*' :app:testDebugUnitTest :app:lintDebug` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"Manifest: `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `FOREGROUND_SERVICE_LOCATION`; `<service android:name=\\\".location.LiveLocationService\\\" android:exported=\\\"false\\\" android:foregroundServiceType=\\\"location\\\"/>`. No `ACCESS_BACKGROUND_LOCATION`.\", \"`play-services-location` is used only if `GoogleApiAvailability` says SUCCESS; otherwise `LocationManagerCompat` with GPS + network providers.\", \"`LiveShares`: on each fix applies `UpdatePolicy` per active own share; at each share's `liveUntilMs` sends `stop` automatically; when no own share remains, signals the service to stop.\", \"`stopOrphans()` on app start: every own active share is stopped (`LocationSender.stop`), because a running service can't exist in a fresh process (D142).\", \"The service holds **no** `SyncEngine` lease (grep test: `LiveLocationService.kt` does not contain `acquire(`).\", \"Notification «Вы делитесь местоположением» with action «Остановить» (stops all own shares).\"]}\n```",
       "blockedBy": [
         9
@@ -100,7 +100,7 @@
     {
       "id": 12,
       "subject": "Task 12: App — map stack and the `feature/location` module",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** A MapLibre map drawn only from `tiles.get`, with the location picker and the full-screen live map.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 12: App — map stack and the `feature/location` module).\n\n```json:metadata\n{\"files\": [\"feature/location/build.gradle.kts\", \"feature/location/src/main/assets/map/style.json\", \"feature/location/.../MapView.kt\", \"app/...\", \"app/.../OtterApp.kt\", \"feature/location/src/test/.../TileBridgeTest.kt\"], \"verifyCommand\": \"`nice -n 15 ./gradlew --max-workers=4 :feature:location:testDebugUnitTest :feature:location:lintDebug :app:assembleDebug` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"`TileBridge` answers `https://tiles.otter.invalid/{z}/{x}/{y}.pbf` from `NodeApi.tile` (200 with bytes; 404 when `null`; 503 on `TileBusyException`/offline); any other host is refused with 403 (no request leaves the phone except through Otter).\", \"The style references only `asset://` glyphs and sprites and the fake tile host; `grep -R \\\"http\\\" feature/location/src/main/assets/map/style.json` shows only `https://tiles.otter.invalid`.\", \"Every map shows «© OpenStreetMap» and the coordinates as text.\", \"Picker: shows current position (permission asked: precise or approximate), «Отправить моё местоположение», a draggable pin («Отправить эту точку»), and «Делиться в реальном времени» with 15 мин / 30 мин / 1 ч / 8 ч / «Пока не остановлю». Starting live starts `LiveLocationService`.\", \"Live map: markers for every active share in the conversation (`observeActive`), own share with «Остановить», «Открыть в картах» (`geo:` intent), «Нет обновлений с HH:mm» for open-ended shares stale > 15 min.\"]}\n```",
       "blockedBy": [
         7
@@ -109,7 +109,7 @@
     {
       "id": 13,
       "subject": "Task 13: App — chat integration (attach menu, bubble, strip, previews)",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Locations appear and are sent from the chat like any other message.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 13: App — chat integration (attach menu, bubble, strip, previews)).\n\n```json:metadata\n{\"files\": [\"feature/conversation/.../MessageComposer.kt\", \"feature/location/.../LocationBubble.kt\", \"feature/chats/.../ChatListViewModel.kt\", \"app/.../notify/NotificationContent.kt\", \"feature/conversation/src/test/.../AttachMenuTest.kt\"], \"verifyCommand\": \"`nice -n 15 ./gradlew --max-workers=4 :feature:conversation:testDebugUnitTest :feature:chats:testDebugUnitTest :app:testDebugUnitTest :feature:location:testDebugUnitTest` → `BUILD SUCCESSFUL`\", \"acceptanceCriteria\": [\"Composer leading button = attach (📎, `Icons.Outlined.AttachFile`), menu «Фото» (old gallery action) and «Местоположение» (opens the picker); camera in the text field unchanged.\", \"A LOCATION message shows `LocationBubble`: map picture (MapLibre `MapSnapshotter`, 240×140 dp, cached per message in memory), pin, `MessageMeta` (time + ticks), live line «Обновлено N мин назад · ещё M мин» / «Трансляция завершена» / «Нет обновлений с HH:mm»; offline or no tiles → card with coordinates. The fallback text is never shown for LOCATION.\", \"Tap → live map (`location/map/{cid}`) focused on that share.\", \"Own active share in this chat → strip under the top bar «Вы делитесь местоположением · Остановить».\", \"Chat list and notifications show «📍 Местоположение» (pin) / «📍 Трансляция местоположения» (live), never coordinates on the lock screen.\"]}\n```",
       "blockedBy": [
         10,
@@ -120,7 +120,7 @@
     {
       "id": 14,
       "subject": "Task 14: Emulator acceptance, docs, versions, checks, owner test, merge, rollout",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Two emulators share live location end to end through a dev mesh, the docs match the code, the owner tests on phones and decides the merge.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 14: Emulator acceptance, docs, versions, checks, owner test, merge, rollout).\n\n```json:metadata\n{\"files\": [\"docs-m11/00-decisions.md\", \"feature/location\", \"docs-m11/superpowers/specs/2026-11-25-m11-location-sharing-design.md\", \"otter-android-m11/app/build.gradle.kts\", \"otter-android-m11/docs/m11-manual-test.md\"], \"verifyCommand\": \"the three check commands above.\", \"acceptanceCriteria\": [\"Emulators (`m8_api34` + `m8_api30`, dev mesh of two nodes: one with an upstream stub, one without): A shares live 15 min while `adb emu geo fix` walks a route (a point every 20 s); B sees the dot move; B's node had no upstream and got pieces through the peer; A stops → B shows «Трансляция завершена»; reboot of A's emulator during a share → B sees the share stopped after A's app starts.\", \"Server: `nice -n 15 ionice -c3 go test -p 4 -count=1 ./...` all `ok`; `go vet ./...` clean; `scripts/secrets-check.sh` ok.\", \"App (after the server run): `nice -n 15 ./gradlew --max-workers=4 test lintDebug assembleDebug` → `BUILD SUCCESSFUL`; `scripts/secrets-check.sh` ok.\", \"Docs: `scripts/secrets-check.sh` ok.\", \"Owner test passed and the owner said \\\"merge\\\".\"]}\n```",
       "blockedBy": [
         6,
@@ -128,5 +128,5 @@
       ]
     }
   ],
-  "lastUpdated": "2026-11-26T00:12:08.859532Z"
+  "lastUpdated": "2026-11-26T12:00:00Z"
 }

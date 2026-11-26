@@ -3,6 +3,29 @@
 Approved by the owner 2026-11-25 (brainstorm). Built **after M10 video calls**, on branches `m11-location` in each repo
 touched. Versions: **app 0.13.0, server 0.13.0** (after M10's 0.12.0). New decisions start at **D140**.
 
+**As built (2026-11-26), corrections to this spec** (details in `00-decisions.md` D140–D144, `09-roadmap.md` "M11 notes"):
+- **The 📎 attach menu is new** (D143): the composer had only a gallery button; it became 📎 with «Фото» and
+  «Местоположение», the camera in the text field stays.
+- **Group expiry gap fixed**: group outbox items never expired and group records were signed without `expires_ms`;
+  now `Outbox` drops expired group items and `GroupSender` signs the expiry (D140). Parked group envelopes whose record
+  expired are dropped quietly (a live share would otherwise leave hundreds of «undecryptable» lines).
+- **Live end = `min(sent_ms, received_ms) + live_period_s`** on the receiver's clock (not `sent_ms + …`), so a sender
+  cannot extend a share by dating its message into the future. A start with an unknown period is shown as a pin; the
+  author's stop counts after they left the group and after the live end.
+- **Tiles config is a `[tiles]` section** (`upstream`, `cache_mb`) of `node.toml`, written (commented) only into
+  0.13.0+ bundles because older binaries refuse unknown keys; the upstream is turned on per node with
+  `deploy/tiles-upstream.sh LABEL on`, not by `add-node.sh` / `upgrade.sh` defaults. `status.sh` shows
+  `tiles=served/hits` (cache bytes in the metrics), not a hit rate.
+- A node without upstream asks **any** live peer (the last one that answered first), not only peers that advertise
+  upstream access; peers answer from cache or their own upstream and never forward. `tiles.get` runs in 4 slots per
+  session; all busy → `RETRY_LATER`. Upstream: ≤ 20 requests/s and ≤ 32 pieces in flight per node. Tile errors and
+  logs never carry coordinates. A tiles cache that cannot be opened stops the node at start (owner may revisit).
+- App: no app-side disk cache of our own (MapLibre's cache keeps bridge answers 30 days); glyphs are bundled but go
+  through the bridge; gzip pieces are unzipped by the bridge (MapLibre draws only plain pieces); MapLibre logging is
+  off. Fixes without an accuracy are dropped and much coarser fixes filtered (`CoarseFixFilter`). The service type is
+  `location|shortService`: `shortService` only satisfies a start Android refused for location, then it stops.
+  Location sends keep the composer draft. MapLibre 11.13.5 adds ~24 MB to the APK (two ABIs); 13.x exists (owner).
+
 ## Owner decisions
 
 1. **Map pieces come through our own nodes** (not a public tile host seen by the phones, not "no map").

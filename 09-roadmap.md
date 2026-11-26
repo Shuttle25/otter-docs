@@ -38,8 +38,9 @@ Each milestone ends with something runnable and tested.
 | M9.4 | Operations hardening (server 0.10.1, app 0.10.1 (14); plan `superpowers/plans/2026-11-14-m9-security-hardening.md` Tasks 61–72) | disk floor with low/critical/full levels (D118); per-IP connection, request and public-method limits, per-user write rate (D116); 256 MiB undelivered messages per author (D117); `status.json`, `otter-node status`, `/metrics` on loopback, health block in `status.sh` (D119); sandboxed units 3.8 → 1.5 / 9.0 → 0.5, `sandbox-setup.sh`, read-only `harden-check.sh` (D120); replication keep-alive was already done (D115 = D130); no DB migration | app lock with PIN/biometric, private notifications while locked, «Запрет скриншотов» (D121); «Состояние сети» with per-node history and the battery helper (D123); «Оформление», «Фраза восстановления», settings in the guide's order (D124); no rename screen (D122) | [11](11-deployment.md) §14 takes a reader from an empty admin machine to two phones chatting through three nodes; limits, disk floor and monitoring hold on a VM; the app lock cannot be bypassed from notifications or recents — **merged 2026-11-18** (VM and emulator acceptance passed; on Android 13+ recents opened from inside the unlocked app shows the live window, owner tests later); **rollout pending** (Task 73: nodes 0.10.1 with `sandbox-setup.sh`, then app 0.10.1; see M9.4 notes) |
 | M9.5 | Member privacy and the network code (server 0.11.0, app 0.11.0 (15); after M9.4, before M10; spec `superpowers/specs/2026-11-15-m9-5-member-privacy-design.md`, plan `superpowers/plans/2026-11-18-m9-5-member-privacy.md`) | `directory.sync` and new `directory.list` return the caller's visible set with invite ancestry (D135); `directory.get` by id (≤ 256) and `directory.lookup` exact username, 30/h and 200/day per account (D137); `DirectoryEntry.listed` (12); `LoginResponse.server_version` (4) for members only; `otter-admin network code` (D139); the `directory` event stays a broadcast (D138); no DB migration | catalog of listed, related, chat and group contacts in «Написать» and the group pickers (D136, Room v10); search with «Найти @name» and a person card; tappable `@username` in messages; «Поделиться именем пользователя»; «Показывать меня в каталоге сети» (off by default); unknown senders, recipients and group members fetched by id; network code on the join screen and in «Состояние сети» with each node's version; «Сеть изменилась» warning (D139) | a member of family A cannot see family B in «Написать»; `@username` sent in a chat opens that person — **built 2026-11-19; owner test and rollout pending** (every node first, then the APK) |
 | M10 | 1:1 video calls (server 0.12.0, app 0.12.0 (16); after M9, owner 2026-11-15; was M8.5; spec `superpowers/specs/2026-11-15-m10-video-calls-design.md`, plan `superpowers/plans/2026-11-15-m10-video-calls.md`) | camera on/off at any time in any call (first offer audio-only, video added by one re-offer after the answer, then `setTrack` only, D125), TURN `relay_kbps` 200 → 2000, per-call bitrate logging | 720p ≤ 1.5 Mbit/s with automatic downgrade, manual «Экономить трафик» (360p ≤ 500 kbit/s), front/back switch, picture-in-picture, audio-only pause on throttled links; camera starts only on the user's tap, answering never turns it on | same two phones hold a 5-min video call over the relays; throttled link degrades to audio instead of dropping — **done 2026-11-26** (see M10 notes; real-network rows open) |
+| M11 | Location sharing (server 0.13.0, app 0.13.0 (17); after M10; spec `superpowers/specs/2026-11-25-m11-location-sharing-design.md`, plan `superpowers/plans/2026-11-26-m11-location-sharing.md`) | proto `DataMessage.location`, `Content.location_update` (nodes see ordinary envelopes, D140); phone RPC `tiles.get` (members, z ≤ 14, 600/min, 4 slots per session → `RETRY_LATER`), LRU disk cache `<data_dir>/tiles`, HTTPS upstream (`[tiles] upstream`, TileJSON or template, 20/s, 32 in flight), peer frames `PeerTileGet` / `PeerTile` for nodes without upstream, never forwarded (D141); `tiles=` in `status --line`, `otter_tiles_*` metrics; `[tiles]` in 0.13.0+ bundles, `deploy/tiles-upstream.sh`; no DB migration | 📎 menu «Фото» / «Местоположение» (D143); pin or live share (15 min / 30 min / 1 h / 8 h / until stopped) in 1:1 and group chats; `LiveLocationService` (location FGS, no lease, D142); MapLibre 11.13.5 drawn only through `TileBridge` → `tiles.get` (D144); location bubble with a map snapshot or the coordinates card, live map, sharing strip; Room v11 (`live_locations`, `LOCATION`); group outbox expiry fixed (D140) | a pin and a 15-min live share between two phones, the watcher sees the dot move and the end; the node in Russia gets map pieces only through a foreign peer — **built 2026-11-26; owner phone test, rollout (nodes, `tiles-upstream.sh` on the foreign node, APK) and merge open**
 
-Recommended build order is M0→M9 (M6.5 before M7; calls M8 before hardening M9, video M10 after M9 (owner 2026-11-15), owner request 2026-11-13); M7 can move earlier if blocking is immediate
+Recommended build order is M0→M9 (M6.5 before M7; calls M8 before hardening M9, video M10 after M9 (owner 2026-11-15), location M11 after M10, owner request 2026-11-13); M7 can move earlier if blocking is immediate
 (the transport interface exists from M1, so only the REALITY implementation is deferred).
 
 ## V1.x (after M9)
@@ -72,6 +73,63 @@ on the phone.
 ## Open questions
 
 None currently.
+
+## M11 notes (2026-11-26)
+
+Built (D140–D144): server — proto `Location`, `LocationUpdate`, `TileRequest` / `TileResponse`, `PeerTileGet` /
+`PeerTile`; `internal/tiles` (`Valid`, `Check`, LRU `Cache`, HTTPS `Upstream`), `internal/replication/tiles.go`
+(`FetchTile`, `serveTile`), `internal/service/tiles.go` (`TilesGet`, `Tiles.Local`), gateway `tiles.get`, metrics and
+`status --line` `tiles=served/hits`, `deploy/templates/node.toml.tiles`, `make-bundle.sh` (0.13.0+ only),
+`deploy/tiles-upstream.sh`. App — `NodeApi.tile` (`TileBusyException`), `core/data/location` (`LocationCodec`,
+`UpdatePolicy`, `LocationSender`, `LiveLocationApplier`, `LiveShares`, `LiveShareLoop`, `PositionSource`), Room v11,
+`LiveLocationService`, `PositionSources` (fused / platform, `CoarseFixFilter`), `StopShareReceiver`, channel
+`location`, `:feature:location` (MapLibre 11.13.5, `MapInit`, `TileBridge`, picker, live map, bubble, strip), the
+📎 menu, fixed «📍» labels in the chat list, notifications and message info.
+
+Build-time facts and deviations from the spec and the plan:
+* Server: the cache root is resolved through symlinks (a restart finds the pieces again); unreadable entries are
+  skipped on open. Tile error texts never contain coordinates, and `Tiles.Local` (what a peer is answered from) returns
+  plain sentinels. At most 32 distinct pieces are fetched from the upstream at once (memory bound against a slow
+  upstream). `tiles.get` runs off the session's read loop in 4 slots per session; when all 4 are busy the request is
+  answered `RETRY_LATER` at once (a map view asks for many pieces together). Peers never forward a `PeerTileGet`. A peer that let a
+  piece request time out is skipped for 10 min; a new session to that peer clears the mark (a short outage costs no
+  10 min without pieces). If
+  the tiles cache cannot be opened at start, the node does not start (as built; the owner may prefer "start without
+  maps").
+* The tiles config is a `[tiles]` section of `node.toml` (not `tiles_upstream` / `tiles_cache_mb` keys), written
+  only into 0.13.0+ bundles with the header active and the keys commented; the upstream is switched on per node with `tiles-upstream.sh` (not by
+  `add-node.sh` / `upgrade.sh` defaults). The peer used is any live peer, not one that "advertises upstream access".
+* App: group outbox items now honour their expiry (the D140 gap: group envelopes never expired); parked group
+  envelopes whose record expired are dropped quietly. A live share's end is counted from `min(sent_ms, received_ms)`
+  (the spec said `sent_ms`). A start with an unknown period becomes a pin. The author's stop counts after they left
+  the group; leaving stops our shares there first (the stop is encrypted before the leave, so it still goes out; every other group message queued before the leave is sealed the same way and sent instead of failing), a stored group record is re-checked before each send and re-signed without any recipient revoked or removed since it was sealed (D104; the 1:1 path already refused revoked recipients), and
+  a phone applying a removal (or a revocation / re-key) ends that member's shares itself (final review I1). A timed
+  share sends no stop at its end (receivers end it by their clock). The map's OkHttp client asks at most 4 pieces at
+  once (the node's 4 tile slots per session). Location sends keep the composer draft. The 📎 attach menu is new (D143; the spec assumed one existed).
+* `LiveLocationService` declares `location|shortService`: the short-service type only satisfies a start Android
+  refused for location, then the service stops (the loop never runs under it). Fixes without an accuracy are dropped;
+  `CoarseFixFilter` drops a fix more than 4× worse than the best of the last 30 s.
+* Map: glyphs are bundled but requested through `TileBridge` (an unbundled range → empty 200, `no-store`); gzip
+  pieces are unzipped by the bridge (MapLibre parses only plain pieces; found in the emulator run, `e3fe8ea`); the
+  map zooms in when the first position arrives (`50f0c68`); MapLibre logging is silenced (it names tile coordinates).
+  No app-side disk cache of our own: MapLibre's cache keeps bridge answers 30 days.
+* The APK grows by ~24 MB (MapLibre's native library for two ABIs). MapLibre 13.x exists; switching is an owner
+  decision.
+
+Local results (2026-11-26; checklist `otter-android/docs/m11-manual-test.md`): two emulators (`m8_api34`, `m8_api30`)
+on a throwaway two-node network on 127.0.0.1 (the PC's OpenSnitch drops new binaries' LAN connections; phones reach
+their nodes with `adb reverse`), node `x` with an HTTPS stub upstream (self-signed, trusted via `SSL_CERT_FILE` for
+that process only; no test switch added to the node), node `y` without upstream. Rows 1–6 PASS: pin with a map
+picture, 15-min live share following a 10-point `geo fix` walk (`y`: `tiles_peer 30`, `tiles_upstream 0`), stop from
+the notification, reboot of the sharing emulator → share ended 11 s after the app started, lock-screen
+«📍 Местоположение» without coordinates, permission refusals → «Открыть настройки». No tile coordinates and no WARN /
+ERROR lines in the node logs. Map text needs `-gpu host` on emulators (SwiftShader draws no MapLibre text).
+
+Open (owner): phone rows 7–13 on the real nodes, rollout, the merge. Rollout order: upgrade the foreign nodes first
+(`upgrade-all.sh 0.13.0 --only LABEL`) and turn their upstream on (`deploy/tiles-upstream.sh LABEL on`) **before**
+ru-1 (which stays off and asks its peers); at least one foreign node must have the upstream on, or no maps load
+anywhere. Then ru-1, `release-apk.sh 0.13.0`, news. Decisions to revisit: tiles cache failure stops the node;
+MapLibre 13.x for a smaller APK.
 
 ## M10 notes (2026-11-26)
 

@@ -5,9 +5,9 @@ family (10–100 users). It runs on a mesh of 1–3 identical, self-hosted nodes
 to each other, survive hosting outages, and are designed to keep working under active
 DPI-based internet blocking.
 
-Status: **in development** — milestones M0–M10 (incl. M1.5, M1.6, M6.5, M9.0–M9.5) built as of 2026-11-26; M10
-(1:1 video calls, server and app 0.12.0) with real-network checks and the rollout open; next M11 (location sharing).
-Details per milestone in [09](09-roadmap.md).
+Status: **in development** — milestones M0–M11 (incl. M1.5, M1.6, M6.5, M9.0–M9.5) built as of 2026-11-26; M10
+(1:1 video calls, server and app 0.12.0) with real-network checks and the rollout open; M11 (location sharing, server
+and app 0.13.0) built, the owner's phone test, rollout and merge open. Details per milestone in [09](09-roadmap.md).
 
 Code: [otter-server](https://github.com/Shuttle25/otter-server) (Go node + admin tools) and
 [otter-android](https://github.com/Shuttle25/otter-android) (Android app). Implementation plans for each milestone are in
@@ -26,7 +26,7 @@ Code: [otter-server](https://github.com/Shuttle25/otter-server) (Go node + admin
 | 06 | [Node (server) architecture](06-node-architecture.md) | Go packages, storage schema, config, push, blobs, embedded TURN relay |
 | 07 | [Android app architecture](07-android-architecture.md) | Modules, stack, local storage, sync engine, calls, screens |
 | 08 | [Operations](08-operations.md) | Deploying 1/2/3 nodes, admin CLI, upgrades, monitoring |
-| 09 | [Roadmap](09-roadmap.md) | V1 milestones (audio calls M8, video calls M10), V2 (group calls, multi-device), open questions |
+| 09 | [Roadmap](09-roadmap.md) | V1 milestones (audio calls M8, video calls M10, location M11), V2 (group calls, multi-device), open questions |
 | 10 | [Design guidelines](10-otter-design-guidelines.md) | Android UI: tokens, typography, screens, states, copy (RU) — normative for UI |
 | 11 | [Server deployment](11-deployment.md) | Build, bundle, install, TLS, systemd, upgrades, backups, scripts, security checklist (§8), three nodes from scratch (§14) |
 
@@ -45,4 +45,6 @@ FCM wake-ups with a constant, content-free payload and an automatic 15-minute fa
 unavailable (M5). 1:1 audio calls (M8) use WebRTC with end-to-end DTLS-SRTP; signaling travels as encrypted messages
 and media through a TURN relay on each phone's own node, so by default neither side learns the other's IP. Video
 (M10) is switched on in any call by the local user's tap only, rides the same relay allocation (720p ≤ 1.5 Mbit/s,
-«Экономить трафик» 360p ≤ 500 kbit/s) and pauses to audio on a weak link.
+«Экономить трафик» 360p ≤ 500 kbit/s) and pauses to audio on a weak link. Location (M11) travels end-to-end encrypted as a pin or a live share; the map's
+pieces come only from the member's own node, which caches them and fetches misses from a public source (foreign
+nodes) or from a peer (the node in Russia).
