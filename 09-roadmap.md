@@ -91,7 +91,9 @@ Build-time facts and deviations from the spec and the plan:
   skipped on open. Tile error texts never contain coordinates, and `Tiles.Local` (what a peer is answered from) returns
   plain sentinels. At most 32 distinct pieces are fetched from the upstream at once (memory bound against a slow
   upstream). `tiles.get` runs off the session's read loop in 4 slots per session; when all 4 are busy the request is
-  answered `RETRY_LATER` at once (a map view asks for many pieces together). Peers never forward a `PeerTileGet`. If
+  answered `RETRY_LATER` at once (a map view asks for many pieces together). Peers never forward a `PeerTileGet`. A peer that let a
+  piece request time out is skipped for 10 min; a new session to that peer clears the mark (a short outage costs no
+  10 min without pieces). If
   the tiles cache cannot be opened at start, the node does not start (as built; the owner may prefer "start without
   maps").
 * The tiles config is a `[tiles]` section of `node.toml` (not `tiles_upstream` / `tiles_cache_mb` keys), written
@@ -100,7 +102,7 @@ Build-time facts and deviations from the spec and the plan:
 * App: group outbox items now honour their expiry (the D140 gap: group envelopes never expired); parked group
   envelopes whose record expired are dropped quietly. A live share's end is counted from `min(sent_ms, received_ms)`
   (the spec said `sent_ms`). A start with an unknown period becomes a pin. The author's stop counts after they left
-  the group; leaving stops our shares there first (the stop is encrypted before the leave, so it still goes out), and
+  the group; leaving stops our shares there first (the stop is encrypted before the leave, so it still goes out; every other group message queued before the leave is sealed the same way and sent instead of failing), a stored group record is re-checked before each send and re-signed without any recipient revoked or removed since it was sealed (D104; the 1:1 path already refused revoked recipients), and
   a phone applying a removal (or a revocation / re-key) ends that member's shares itself (final review I1). A timed
   share sends no stop at its end (receivers end it by their clock). The map's OkHttp client asks at most 4 pieces at
   once (the node's 4 tile slots per session). Location sends keep the composer draft. The 📎 attach menu is new (D143; the spec assumed one existed).
