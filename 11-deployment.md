@@ -277,6 +277,25 @@ requests_per_ip = 50        # client requests per second per source, burst 10x (
 [metrics]
 listen = "127.0.0.1:9477"   # loopback only: a public address is refused at start; "off" disables (D119)
 ```
+
+Map pieces (M11, D141), appended commented to `node.toml` only by 0.13.0+ bundles (`deploy/templates/node.toml.tiles`;
+older binaries refuse unknown keys, so never add it by hand to a node below 0.13.0):
+
+```toml
+[tiles]
+# upstream = "https://tiles.openfreemap.org/planet"   # TileJSON URL or https template with {z}/{x}/{y}; empty = ask peers
+# cache_mb = 2048                                    # disk cache under data_dir/tiles, 64..1048576
+```
+
+Foreign nodes get the upstream with `deploy/tiles-upstream.sh LABEL on` (`off` removes the line). The script needs
+0.13.0+ on the node, writes `node.toml.new`, checks it with `otter-node check`, keeps `node.toml.pre-tiles`, restarts
+the node and checks health and the `"msg":"tiles on"` log line with the expected `"upstream"` value; otherwise it
+restores the old file. The node in Russia stays **off**: it asks its peers over the peer session and never contacts a
+foreign host for maps. The cache lives in `/var/lib/otter/tiles/` (inside the sandbox's `ReadWritePaths`; not in the
+database backup; safe to delete while the node is stopped). With an upstream the node makes outbound HTTPS requests to the
+upstream host (it sees the node's IP and the viewed areas, never who looks); the firewall needs no change.
+`status.sh` / `otter-node status --line` show `tiles=served/hits`; Prometheus `otter_tiles_*`. If the cache directory
+cannot be opened, the node does not start (journal: `tiles cache: …`).
 Nodes replicate with each other over the same port: the peer endpoint is `<path>/peer`, verified with the
 peer's pinned certificate and node key (no extra port or firewall rule).
 
@@ -598,6 +617,7 @@ On Ubuntu 24.04 sshd can be socket-activated; a `WARN listener` naming `systemd`
 | M6 (done) | `/var/lib/otter/blobs/` also holds members' password backups (persistent blobs, ≤ 3 per member, counted in `user_quota`); nothing to configure; DB migration 0005 runs on upgrade. Upgrade all nodes (`upgrade-all.sh`) before relying on restore: an older node answers `auth.login` without `installed_ms` and does not know the backup methods |
 | M7 (done) | Optional `[reality]` in `node.toml` + `/etc/otter/reality.key` on foreign nodes, listening on :443 (`CAP_NET_BIND_SERVICE`; clients stay on the node port, D26 revised for REALITY only), set up with `deploy/reality-setup.sh` after the node runs 0.7.0; `dial_out_only` for a domestic node (`add-node.sh` asks); DB migration 0008 (`netlog`); `upgrade.sh` also rolls back `node.toml` (§13) |
 | M9.4 (done, 0.10.1) | `[limits]` gains `disk_floor`, `user_pending`, `conns_per_ip`, `requests_per_ip`; `[metrics]` (loopback only, default `127.0.0.1:9477`); the node writes `/var/lib/otter/status.json`; `otter-node status`; `status.sh` health block; sandboxed `otter-node.service` / `otter-backup.service` via `sandbox-setup.sh` (also run by `upgrade-all.sh` for 0.10.1+, `--no-sandbox` skips it); read-only `harden-check.sh` (`harden-report.sh` installed to `/usr/local/lib/otter/`). No DB migration (M9.0–M9.3 brought 0009–0015); nothing to change in `node.toml` |
+| M11 (built, 0.13.0) | New 0.13.0+ bundles append a commented `[tiles]` section; `deploy/tiles-upstream.sh LABEL on` on each foreign node after `upgrade-all.sh 0.13.0` (the node in Russia stays off); cache in `/var/lib/otter/tiles/` (default cap 2 GiB); `tiles=` in `status.sh`. No DB migration, no firewall change (outbound HTTPS only) |
 
 ---
 

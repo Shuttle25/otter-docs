@@ -13,9 +13,10 @@
 | Other crypto | Tink (Ed25519, streaming AEAD), Argon2kt (Argon2id) |
 | Networking | OkHttp WebSocket; libXray AAR for REALITY later (V1.x, D75: REALITY is node-to-node only in V1) |
 | Serialization | protobuf-javalite (generated from shared `/proto`) |
-| Background | WorkManager 2.11 (expedited `wake`, periodic `saver`), FCM (`firebase-messaging`); no persistent foreground service in V1 (D61) |
+| Background | WorkManager 2.11 (expedited `wake`, periodic `saver`), FCM (`firebase-messaging`); no persistent foreground service in V1 (D61; bounded exception: `LiveLocationService` only while a live location share is on, M11, D142) |
 | Media | CameraX / system photo picker, Coil (images), Media3 (playback), MediaRecorder (voice, AAC/m4a) |
 | Calls (M8) | WebRTC M150 `io.github.webrtc-sdk:android:150.7871.04` (only in `:feature:calls`), `androidx.core:core-telecom:1.0.1`, CallStyle from `androidx.core` 1.17.0 (D76, D80) |
+| Maps and location (M11) | MapLibre Native Android `org.maplibre.gl:android-sdk:11.13.5` (only in `:feature:location`; bundled style, sprites and glyphs; tiles only through `TileBridge`, D144); `com.google.android.gms:play-services-location:21.4.0` (fused positions when Google Play services exist; platform `LocationManager` otherwise, D142) |
 | QR | ZXing (works without Google Play Services) |
 | Min / target SDK | 26 / latest |
 | Build | Release ABIs **arm64-v8a + armeabi-v7a** (x86_64 only in debug/staging, for the emulator; M8). Gradle KTS, version catalog, **one build, no flavors** (D61): `firebase-messaging` is always linked; the `google-services` plugin is applied only when `app/google-services.json` exists (never committed), otherwise the app builds and runs without push. Distributed as signed **APKs** (direct download; FCM works from an APK as long as the phone has Google Play services). Build types debug, release, staging (M3) |
@@ -50,6 +51,8 @@ android/
     groups/                    new group, group info (members, admins, rename, leave), add members (M3)
     settings/                  settings, profile, edit name (M1.5), backup (M6), notifications (M5), app lock, network status, appearance, recovery phrase (M9.4)
     calls/                     WebRtcEngine (MediaEngine impl), call screen + view model, audio routing (M8)
+    location/                  MapLibre map (OtterMap), TileBridge, MapInit, picker, live map, location bubble,
+                               sharing strip (M11)
 ```
 
 Dependency rule: `feature/*` → `core/*`; core modules never depend on features; `core/network`
@@ -257,13 +260,17 @@ sender_key_shared(group_id, distribution_id, member)                    who has 
 my_distribution(group_id, distribution_id, since_version)                our sender key; deleted on rotation
 message_recipients(message_local_id, user_id, delivered_ms, read_ms)     frozen recipient set (D23)
 messages(id, conversation_id, sender_id, sent_ms, received_ms, body, quote_id,
-         status{PENDING|SENT|DELIVERED|READ|FAILED}, kind{TEXT|SYSTEM_UNDECRYPTABLE|SYSTEM_GROUP|PHOTO|SYSTEM_RESET|…|CALL},
+         status{PENDING|SENT|DELIVERED|READ|FAILED}, kind{TEXT|SYSTEM_UNDECRYPTABLE|SYSTEM_GROUP|PHOTO|SYSTEM_RESET|…|CALL|…|LOCATION=9},
          call_outcome, call_duration_s)                                        call columns: M8 (DB v8)
 attachments(id, message_local_id UNIQUE, blob_key, key, digest, size, mime, width, height, thumb, file,
             state{UPLOADING|UPLOADED|UPLOAD_FAILED|REMOTE|QUEUED|DOWNLOADED|FAILED|GONE|NOT_IN_BACKUP}, done_chunks, auto,
             meta_record, ack_pending, attempts, next_attempt_ms)                 M4 (DB v5)
 receipts(message_id, user_id, type, at)
-outbox(record_id, raw_content, recipients, attempts, next_attempt, state, expires_ms)    expires_ms: M8 (DB v8, D78)
+outbox(record_id, raw_content, recipients, attempts, next_attempt, state, expires_ms)    expires_ms: M8 (DB v8, D78);
+                                                         honoured for group items too since M11 (D140)
+live_locations(message_id, conversation_id, sender_id, outgoing, lat_e7, lon_e7, accuracy_m, heading_deg, speed_cms,
+               fix_ms, live_until_ms, stopped, updated_ms)                live shares, ours and members' (M11, DB v11, D140);
+                                                                           never backed up
 seen_envelopes(id, until)
 signal_*                       (identity, prekeys, signed prekeys, kyber prekeys, sessions, sender keys)
 endpoint_stats(node_id, endpoint_hash, network_id, success, fail, last_rtt, last_ok)
@@ -506,6 +513,59 @@ No Room schema change (still v8): `contacts.revoked` existed already.
   under each node. `ManifestUpdater` returns `FOREIGN` for a manifest validly signed by another network's key
   (`ManifestVerifier.foreignNetwork`), from `checkAfterLogin` or a `manifest` event; `SyncEngine.networkChanged`
   (memory only) shows «Сеть изменилась» over the app until «Понятно» (`dismissNetworkChanged`) for this app run.
+
+### Location sharing (M11, D140–D144; app 0.13.0 (17))
+* **Content** (`core/data/.../location`): `LocationCodec` (`Fix`, degrees × 1e7, `PERIODS_S` 900/1800/3600/28800 and
+  `UNTIL_STOPPED` = -1 (uint32 max on the wire), fallback text, haversine), `UpdatePolicy` (≥ 30 m and ≥ 30 s, or a
+  5-min heartbeat; update TTL 300 s; open-ended stop TTL 7 days; «Нет обновлений» after 15 min). `LocationSender`:
+  `sendPin`, `startLive` (a `LOCATION` message with the `Location` proto in `systemData`, plus our `live_locations`
+  row), `sendUpdate` and `stop` (outbox items only: `messageLocalId = null`, not urgent; the update's `message_id` is
+  the share id; group items carry `LocationUpdate.group`); every enqueue calls `SendTrigger` = `WakeScheduler.wakeNow()`.
+  Location sends keep the composer draft (`queueData(clearDraft = false)`).
+* **Receive**: `MailboxReceiver` / `GroupReceiver` store `LOCATION` messages (`LiveLocationApplier.locationOf`: an
+  unknown period → pin, coordinates out of range → plain text) and add the incoming share row on a newly inserted
+  start (`onStart`, end counted from `min(sent_ms, received_ms)`). `LiveLocationApplier.apply` takes an update only
+  from the share's author, through the share's own chat or group, while live and not stopped, with a newer `fix_ms`;
+  updates never create chats, messages, notifications or receipts. In groups an update needs a current member, a stop
+  counts also from a member who left or was removed. Group outbox items honour `expires_ms` (`Outbox` drops expired
+  ones, `GroupSender` signs the expiry); parked group envelopes whose record expired are deleted quietly.
+* **Live sharing** (`app/.../location`, D142): `LiveLocationService` (`foregroundServiceType="location|shortService"`,
+  not sticky, channel `location`, notification «Вы делитесь местоположением» + «Остановить» via `StopShareReceiver`).
+  `LiveLocationService.start(ctx, liveShares)` is called after `startLive` while the app is visible; without the
+  permission, or when Android refuses the start, every own share is stopped and the caller tells the user. If the
+  `location` type is refused inside the service (Android 14+), the permission-free `shortService` type satisfies the
+  start and the service stops at once; the loop runs only under `location`. `LiveShareLoop` (`core/data`) merges
+  positions, a 60 s ticker (ends timed shares while standing still) and nudges (a share started or stopped), and
+  hands each to `LiveShares` (`onFix`, `expire`, `stopAll`); a failing position source stops every share. The
+  service takes no `SyncEngine` lease; each update is sent by an expedited wake that releases after 10 s idle.
+  `OtterApp` calls `LiveShares.stopOrphans()` once the account is loaded: a fresh process never resumes a share.
+* **Positions** (`PositionSources.kt`): `FusedPositionSource` with Google Play services, `PlatformPositionSource`
+  (`LocationManager`) otherwise; a fix without an accuracy is dropped (unknown is not 0 m), and `CoarseFixFilter` drops
+  a fix more than 4× worse than the best of the last 30 s. `PositionSource.current()` gives the picker's pin.
+* **Map** (`:feature:location`, D144): MapLibre 11.13.5 with the bundled style (`assets/map/style.json`, OpenFreeMap «liberty»
+  reduced to one vector source; `asset://` sprites; glyphs for Noto Sans Regular/Bold/Italic in the assets but
+  requested through the bridge; `LICENSES.md`). `MapInit.ensure` silences MapLibre's logging (Java and
+  native: its messages carry tile coordinates) and installs an OkHttp client whose only interceptor is **`TileBridge`
+  — the only map network path**: `https://tiles.otter.invalid/z/x/y.pbf` → `NodeApi.tile` (`tiles.get`; null or an old
+  node → 404, `TileBusyException` / offline → 503; a gzip piece is unzipped before MapLibre, ≤ 8 MiB, broken → 404;
+  > 1 MiB raw → 404); `/glyphs/{font}/{range}.pbf` → the bundled range, an unbundled range → empty 200 with
+  `no-store` (MapLibre 11 blanks a whole tile on a failed range); other hosts → 403; the client's DNS refuses every
+  name. 200 answers carry `max-age` 30 days for MapLibre's own cache. `OtterMap(camera, zoom, markers)` draws the map
+  with «© OpenMapTiles © OpenStreetMap» (logo and (i) off); the picker and live map start at zoom 1 and zoom in
+  (15 / 14) when the first position arrives. Bubble pictures come from MapLibre's snapshotter through the same client
+  (memory cache only); offline or without pieces the bubble shows the coordinates card.
+* **Screens**: `Routes.locationPick(cid)` (picker: «Отправить моё местоположение» / «Отправить эту точку», «Делиться
+  в реальном времени» with the five periods, permission dead ends → «Открыть настройки»), `Routes.locationMap(cid)`
+  (`?focus=<hex message id>`; every live share of the chat, own with «Остановить», each with «Открыть в картах»
+  via `geo:`; an ended share or a pin focused as «Точка на карте»). Composer 📎 menu (D143), `LocationBubble`,
+  `SharingStrip`; chat list, notifications and message info show «📍 Местоположение» / «📍 Трансляция
+  местоположения», never coordinates. Backups keep pins (period forced to 0), never `live_locations`.
+* **Size**: the APK grows by ~24 MB (MapLibre's `.so` for arm64-v8a and armeabi-v7a). MapLibre 13.x exists; moving
+  to it is an owner decision. Tests: Robolectric with `LocalMapRenderer` / `LocalMapSnapshots` fakes (MapLibre's
+  native view does not run on the JVM), Roborazzi screenshots (light and dark) of the 📎 menu, picker, live map, bubbles, strip and chat-list row.
+* **Emulators**: on headless emulators the default SwiftShader renderer draws no MapLibre text; start them with
+  `-gpu host` for map checks. If the PC's application firewall (OpenSnitch) drops new binaries' connections to the LAN
+  address, run the dev nodes on 127.0.0.1 and reach them with `adb reverse` (`otter-android/docs/m11-manual-test.md`).
 
 ### Photos (M4, D44–D48)
 `core/data/media`: `PhotoPrep` (JPEG ≤ 2560 px, EXIF orientation applied, no metadata, 64 px thumbnail),

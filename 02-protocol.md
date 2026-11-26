@@ -146,13 +146,45 @@ message Content {
     SenderKeyDistribution sender_key   = 4; // a member's sender key for one group (M3)
     SessionReset          session_reset = 5; // M6, D53: "I was restored, start a new session" (empty)
     CallMessage           call         = 6; // M8, D78: 1:1 call signaling
+    LocationUpdate        location_update = 7; // M11, D140: a position of a live share (never shown as a message)
     // Profiles travel in the directory, not in E2E content (D14/D39).
   }
   int64 sent_ms = 10;
 }
-message DataMessage { bytes message_id = 1; string text = 2; GroupContext group = 3; }
+message DataMessage { bytes message_id = 1; string text = 2; GroupContext group = 3;
+                      repeated Attachment attachments = 4; Location location = 5; /* M11 */ }
 message GroupContext { bytes group_id = 1; }
 ```
+
+**Location (M11, D140; app 0.13.0).** Degrees × 1e7:
+
+```proto
+message Location {             // in DataMessage.location: a pin or the start of a live share
+  sint32 lat_e7 = 1; sint32 lon_e7 = 2; uint32 accuracy_m = 3;
+  uint32 live_period_s = 4;    // 0 = pin; 900, 1800, 3600, 28800; 4294967295 = until stopped
+}
+message LocationUpdate {       // Content.location_update
+  bytes message_id = 1;        // the DataMessage that started the share
+  GroupContext group = 2;      // set in groups (SENDER_KEY envelope)
+  sint32 lat_e7 = 3; sint32 lon_e7 = 4; uint32 accuracy_m = 5;
+  uint32 heading_deg = 6; uint32 speed_cms = 7;
+  int64 fix_ms = 8;            // time of the fix, sender clock
+  bool stopped = 9;
+}
+```
+
+* A **pin or live start** is an ordinary `DataMessage` (1:1, or `SENDER_KEY` in groups): urgent, with receipts. Its
+  `text` is a fallback for apps before 0.13.0: `📍 Местоположение: 55.75580, 37.61730` and a second line
+  `geo:55.75580,37.61730` (5 decimals). 0.13 apps never show it. A start with any other period is shown as a pin;
+  coordinates out of range (|lat| > 90°, |lon| > 180°) make it plain text.
+* **Updates** (`stopped = false`) are 1:1 or `SENDER_KEY` envelopes, **never urgent**, no receipts, never a message row,
+  record `expires_ms = created + 300 000`. Cadence: moved ≥ 30 m and ≥ 30 s since the last send, or every 5 min.
+* The **stop** (`stopped = true`, last position) expires at the live end, or `now + 7 days` for an open-ended share, so
+  offline members still learn it. After reboot or process death the sender's app sends it on its next start.
+* **Receiver**: the share is live until `min(sent_ms, received_ms) + live_period_s` by the receiver's clock (open-ended:
+  until the stop). An update moves it only if its verified sender authored the start, through the same chat or group
+  (in groups a current member; a stop counts also from a former member), the share is live and not stopped, and
+  `fix_ms` is newer than the stored fix. Anything else, including an update for an unknown share, is acked and dropped.
 
 **Call signaling (M8, D78).** `CallMessage{call_id (16 random bytes, chosen by the caller), oneof kind {offer
 CallOffer{sdp, restart, video = 3 (M10), add_video = 4 (M10)}, answer CallAnswer{sdp, video = 2 (M10)}, candidates IceCandidates{repeated IceCandidate{sdp_mid,
@@ -298,6 +330,7 @@ message Event    { string type = 1; bytes body = 2; } // server → client push 
 | `turn.credentials{}` → `TurnCredentials` | logged in (M8, D77): TURN-REST username/password for **this** node's relay, `ttl_s` 43200, `urls` (`turn:IP:3478?transport=udp`, `…?transport=tcp`, `turns:IP:5349?transport=tcp` only when the node's WSS has TLS); asked on every call (D79); TURN off → UNAVAILABLE (9); pre-M8 nodes → INVALID; a revoked account gets none, and TURN refuses its earlier credentials (M9.2, D108) |
 | `push.status{user_id}` → `PushStatus{has_push}` | logged in (M8): true if this node holds a non-empty push token for (user, device 1); false for a withdrawn device (D94; `messages_off` still counts as push: calls ring); the caller warns that a phone without push may not ring |
 | `apk.get{sha256, index}` → `ApkChunk{data, total_size}` | logged in: 1 MiB chunk of an APK imported with `otter-node apk import`; unknown hash / index past the end → NOT_FOUND (D68) |
+| `tiles.get{z, x, y}` → `TileResponse{data}` | logged in (M11, D141; server 0.13.0): one vector map piece (Mapbox Vector Tile as the upstream served it, usually gzip, ≤ 1 MiB). `z ≤ 14` and `x, y < 2^z`, else `INVALID`; 600 per account per minute → `QUOTA`; not in the cache and not available from the node's upstream or its peers → `NOT_FOUND`; node without a tiles cache → `UNAVAILABLE`; the upstream busy, or the session's **4 tile slots** all taken (they run off the read loop, separately from `blob.get`) → `RETRY_LATER`. Error texts never contain the coordinates. A node before 0.13.0 → INVALID "unknown method" (the app shows the coordinates card) |
 | `ping` | keep-alive / RTT measurement |
 
 Events: `hello`, `envelopes` (mailbox delivery, a `RecordBatch` of at most 100 records and, from server 0.9.0, at most
@@ -453,3 +486,15 @@ first; then one ENVELOPE with N recipients.
 4. The receiver shows the thumbnail at once and downloads by policy (Wi-Fi / any / manual) with `blob.get` from its
    current node (which proxies from a peer if needed), checks size and digest, then sends `blob.ack` (`BLOB_FETCHED`).
 5. Nodes delete the blob once every reader acked, or at expiry, and keep a tombstone (D45).
+
+### Location and map pieces (M11; D140–D144; server and app 0.13.0)
+1. Pin: 📎 → «Местоположение» → the phone sends a `DataMessage` with `location` (period 0) like a text (above).
+2. Live share: the start is the same message with a period; `LiveLocationService` then queues `LocationUpdate`s in the
+   outbox and wakes the send path for each one (no connection stays open, D142); the stop goes out when the period
+   ends, on «Остановить», or on the next app start after a reboot.
+3. Map: the app's map asks `tiles.get` on its current node for each piece it draws. The node answers from its disk
+   cache; on a miss a node with `[tiles] upstream` fetches the piece over HTTPS, a node without one asks its peers with
+   `PeerTileGet` / `PeerTile` ([03](03-mesh-replication.md) "Map pieces"), and caches the answer. A peer never asks
+   further peers. Nothing found → `NOT_FOUND`; the app then shows the coordinates card.
+4. Compatibility: apps before 0.13.0 show the fallback text with the `geo:` line and ignore `location_update`
+   (unknown oneof case, acked); a 0.13 app on a node before 0.13.0 gets no map pieces and shows coordinates cards.
