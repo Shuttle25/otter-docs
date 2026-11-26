@@ -153,13 +153,18 @@ tick. `blob.get` runs off the session's read loop (4 at a time), so a proxied ch
   (41 = relay port range); over the limit → 486.
 * `relay.go` — relay address generator: UDP only, IPv4 `relay_ip`, ports 49160–49200 (RESERVATION-TOKEN ports outside
   the range and RFC 6062 TCP relays refused); a token-bucket **rate cap per allocation**, each direction
-  (`relay_kbps`, default 200); writes to any address of the node (relay IP, interface addresses) are dropped unless
+  (`relay_kbps`, default **2000** since 0.12.0, was 200; a one-second burst); writes to any address of the node (relay IP, interface addresses) are dropped unless
   the port is one of its relay ports (two phones on one node).
 * `peers.go` — permission handler: no loopback, private, link-local, multicast, unspecified, CGNAT, `0/8`,
   `192.0.0.0/24`, `198.18/15`, `240/4`, NAT64, 6to4, Teredo, `100::/64` peers (`allow_private_peers` for tests and
   dev networks only).
 * `stats.go` — allocations, relayed and dropped bytes; written every 10 s to `<data_dir>/turn.stats.json`;
   `otter-node stats` appends ` turn_allocs=N turn_relayed_bytes=M` when the snapshot is < 60 s old.
+* Bit-rate log (M10, D129): `turn on` shows `"relay_kbps"`; every closed allocation logs one INFO line
+  `turn allocation closed` with `user` (the TURN user tag, a hash), `duration_s`, `to_peer_avg_kbps`,
+  `to_peer_peak_kbps`, `to_peer_dropped`, the same three for `from_peer_`, and `rate_limited` (any drop). Peak = the
+  busiest one-second window; dropped = packets refused by the rate limiter. No names, no addresses or ports. Since
+  the bucket holds one second of `relay_kbps`, a peak can reach up to 2 × `relay_kbps` without drops.
 * `keygen.go` — `otter-node turn keygen --config FILE [--force]`: 32 random bytes to `secret_file` (refuses to
   overwrite without `--force`, never prints the secret; does not open the DB).
 * netlog (D74) classes `auth` (bad HMAC, expired/malformed username), `quota`, `listen` (start failure); merged, and
@@ -191,7 +196,7 @@ Call signaling envelopes carry a 2-minute record expiry (D78): `Store.Mailbox` s
 | Requests | 50/s burst, 10/s sustained per session |
 | Registration attempts | 10/hour per IP |
 | TURN allocations (`[turn]`) | 12 per user, 41 per node (= relay port range) |
-| TURN relayed rate (`[turn] relay_kbps`) | 200 kbit/s per allocation, each direction |
+| TURN relayed rate (`[turn] relay_kbps`) | 2000 kbit/s per allocation, each direction (200 before 0.12.0; M10, D129) |
 
 ## Configuration (`/etc/otter/node.toml`)
 
@@ -227,7 +232,7 @@ enabled  = true
 relay_ip = "203.0.113.10"    # the node's public IPv4
 # defaults: udp_listen = tcp_listen = ":3478", tls_listen = ":5349" (only with [wss] TLS),
 # relay_port_min/max = 49160/49200, secret_file = "/etc/otter/turn.secret", realm = "otter",
-# max_allocations_per_user = 12, max_allocations = port range, relay_kbps = 200, allow_private_peers = false
+# max_allocations_per_user = 12, max_allocations = port range, relay_kbps = 2000, allow_private_peers = false
 ```
 
 ## Observability

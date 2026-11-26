@@ -158,8 +158,8 @@ message GroupContext { bytes group_id = 1; }
 CallOffer{sdp, restart, video = 3 (M10), add_video = 4 (M10)}, answer CallAnswer{sdp, video = 2 (M10)}, candidates IceCandidates{repeated IceCandidate{sdp_mid,
 sdp_mline_index, candidate}}, hangup CallHangup{reason NORMAL|BUSY|DECLINED|TIMEOUT|FAILED},
 media CallMedia{camera_on, paused} = 6 (M10)}}`. Sent 1:1 as an
-ordinary Signal-encrypted envelope, **urgent**, record `expires_ms = created + 120 000` (nodes stop delivering and
-purge it after that). Only the offer gets a receipt: DELIVERED with message id = `call_id` (the caller shows
+ordinary Signal-encrypted envelope, **urgent** for offers only (since 0.9.1, D108; add-video offers are not, M10), record `expires_ms = created + 120 000` (nodes stop delivering and
+purge it after that). Only the first offer gets a receipt: DELIVERED with message id = `call_id` (the caller shows
 «Звонит…»). The SDP carries the DTLS fingerprints, so nodes and TURN relays cannot intercept the media. Apps
 before 0.8.0 ignore the `call` case (they ack it, show nothing, but may create an empty direct chat).
 
@@ -175,9 +175,10 @@ video"); old apps leave it false and ignore it. Only the caller adds video: afte
 `answer.video`, it adds a track-less `sendrecv` video transceiver and sends one re-offer `CallOffer{add_video = true,
 video = true}` (same `call_id`); the callee answers it with `CallAnswer{video = true}`. The peer can do video when the
 negotiated video section is `sendrecv`. An answer or first offer with `video = false`, or no answer to the add-video
-offer within 10 s, means "the peer cannot do video" for this call. One negotiation at a time: an ICE restart waits for
-a pending add-video exchange and vice versa. Only the first offer is urgent and gets the DELIVERED receipt;
-add-video offers, answers and `CallMedia` are not urgent. After that, video starts and stops without a new offer.
+offer within 10 s on the caller (no add-video offer within 20 s on the callee), means "the peer cannot do video" for
+this call. One negotiation at a time: an ICE restart waits for a pending add-video exchange and vice versa. Offers
+stay urgent (first and ICE-restart offers), but add-video offers, answers and `CallMedia` are not; only the first
+offer gets the DELIVERED receipt. After that, video starts and stops without a new offer (`setTrack`).
 
 ### Groups (M3)
 

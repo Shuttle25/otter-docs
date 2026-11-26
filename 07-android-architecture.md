@@ -208,6 +208,39 @@ Layers, from pure to Android:
 * Connection log: one `net_log` line per call (`call:relay-udp` / `relay-tcp` / `relay-tls` / `direct` / `none`,
   direction, duration, RTT).
 
+### Video calls (M10, D125–D129)
+* `core/data/.../calls`: `CallStateMachine` keeps a **`VideoState`** (`peerVideo`: null until known, then true/false;
+  `cameraOn`, `front`, `saver`, `netPaused` (watchdog), `hidden` (screen off, background without PiP, locked),
+  `cameraDenied`, the peer's last `CallMedia`, `remoteFrames`) and the add-video negotiation: after the first answer
+  with `video = true` the caller emits `SendOffer(addVideo = true)` (the engine's `addVideo()` + offer); 10 s without its answer (caller) or 20 s without such an offer (callee) → `peerVideo = false`;
+  one negotiation at a time with ICE restarts (D125). Only `UserCamera(on = true)` produces `StartCamera` (property
+  test `VideoPrivacyTest`, source scan `CameraEntryPointsTest`, D127). **`VideoWatchdog`** (pure, fed once a second
+  from `MediaEngine.stats()`): pause < 150 kbit/s for 10 s, test bursts at 15 s / 30 s / 60 s / every 2 min, resume
+  after 15 s ≥ 400 kbit/s (D126). `CallManager` sends `CallMedia{camera_on, paused}` on every change (not urgent),
+  applies the «Экономить трафик в видеозвонках» default (`Settings`, a row of the key-value table, no Room change)
+  and samples the stats.
+* `MediaEngine` video calls: `addVideo()` (track-less `sendrecv` transceiver for the re-offer), `peerVideo()`
+  (`currentDirection == SEND_RECV`), `setCamera(on)` (opens/closes the camera and attaches the track with
+  `RtpSender.setTrack`), `setPaused(paused)` (`setTrack(null)` / the camera track; the capturer stays open),
+  `switchCamera()`, `setSaver(saver)` (encoding `maxBitrateBps` / `maxFramerate` + capture format: 1280×720@30
+  ≤ 1.5 Mbit/s or 640×360@20 ≤ 500 kbit/s), `stats()` (`candidate-pair.availableOutgoingBitrate`, video bytes).
+  `WebRtcEngine` builds its factory with `DefaultVideoEncoderFactory(egl, true, false)` / `DefaultVideoDecoderFactory`
+  on the shared `EglBase` of `VideoSinks`. `FakeEngine` records every call for the JVM tests; `VideoLoopbackTest` (instrumented) runs
+  two engines in one process, including old-peer (audio-only) calls both ways.
+* **`VideoSinks`** (`:feature:calls`, singleton): the one shared `EglBase` and the sinks that connect the engine's
+  remote and local frames to the `SurfaceViewRenderer`s of the call screen (remote full screen, local 96×160 dp draggable tile, mirrored for the
+  front camera), so renderers come and go with the UI while the engine lives in the service.
+* Call screen: camera, «Сменить камеру» and saver buttons (disabled while `peerVideo` is null; «У собеседника старая
+  версия» when false), notices «Видео приостановлено: слабая связь», «Разблокируйте телефон, чтобы видеть видео»,
+  «Нет доступа к камере» + «Настройки». `CAMERA` is asked on the first tap. First video moves an earpiece route to
+  the speaker (`CallAudio.preferSpeakerForVideo`); no proximity screen-off with video.
+* `CallService` adds the FGS type **`camera`** (`FOREGROUND_SERVICE_CAMERA`) only while the camera is on and granted,
+  right after the tap, and drops it when off. `CallActivity` reports hidden / locked to the manager (sending stops,
+  peer told `camera_on = false`); the unlock comes from an **exported** `ACTION_USER_PRESENT` receiver (D127).
+  **Picture-in-picture**: 9:16 with an end-call action while remote video is shown (auto-enter on API 31+,
+  `onUserLeaveHint` below); PiP counts as visible. Notifications never carry a picture.
+* Tests: Robolectric + **Roborazzi** 1.59.0 screenshots (test-only; PNGs under `build/`, never committed).
+
 ## Local data model (Room, simplified)
 
 ```

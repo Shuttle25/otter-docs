@@ -37,7 +37,7 @@ Each milestone ends with something runnable and tested.
 | M9.3 | Bound to the network, lost phones, backups away from exposed nodes (server 0.10.0, app 0.10.0 (13); plan `superpowers/plans/2026-11-14-m9-security-hardening.md` Tasks 50–59) | record signature v2 bound to the network id, `Manifest.sig_v1_until_ms`, `otter-admin manifest sign --sig-v1-until` (once), nodes/admin/news key sign v2 after the cut-over (D109, D110); `REKEY` record (type 18) revokes the old account and hands name, rank and admission to the new one, `network.publish` takes `REKEY` and network-authored `INVITE`, `otter-admin user rekey NAME --old` / `--new` (D111); `NodeInfo.no_backups`, `otter-admin node set-no-backups`, backup handoff with `PeerHoldsQuery`/`PeerHolds` to `min(2, other nodes)` (D113); restore tunnel `<path>/tunnel?to=` riding the peer session with `PeerTunnel*` frames, TLS ends inside the target node (D114); migration 0015 | v1/v2 verification and v2 signing after the cut-over (`SigContext`); `RekeyVerifier`/`RekeyApplier` (Room v9 `rekeys`): chat moves to the new account, «ключ безопасности изменился» (`SYSTEM_KEY_CHANGED`), «Код аккаунта» in Профиль; groups swap a re-keyed member by one deterministic phone, a `rekey` revocation waits ≤ 14 days (D112); group states of revoked or re-keyed signers refused (D134); restore through a `no_backups` node's tunnel with TLS pinned to the target, retried over the tunnel after a direct freeze (D114) | a record from another network is refused after the cut-over; a lost phone's account moves to a new phone in two admin steps and contacts keep chatting; a backup never rests on a `no_backups` node and a phone in Russia restores through it — **built 2026-11-16; rollout pending** (nodes 0.10.0 → app 0.10.0 → every phone updated → cut-over manifest; then `no_backups` for the node in Russia) |
 | M9.4 | Operations hardening (server 0.10.1, app 0.10.1 (14); plan `superpowers/plans/2026-11-14-m9-security-hardening.md` Tasks 61–72) | disk floor with low/critical/full levels (D118); per-IP connection, request and public-method limits, per-user write rate (D116); 256 MiB undelivered messages per author (D117); `status.json`, `otter-node status`, `/metrics` on loopback, health block in `status.sh` (D119); sandboxed units 3.8 → 1.5 / 9.0 → 0.5, `sandbox-setup.sh`, read-only `harden-check.sh` (D120); replication keep-alive was already done (D115 = D130); no DB migration | app lock with PIN/biometric, private notifications while locked, «Запрет скриншотов» (D121); «Состояние сети» with per-node history and the battery helper (D123); «Оформление», «Фраза восстановления», settings in the guide's order (D124); no rename screen (D122) | [11](11-deployment.md) §14 takes a reader from an empty admin machine to two phones chatting through three nodes; limits, disk floor and monitoring hold on a VM; the app lock cannot be bypassed from notifications or recents — **merged 2026-11-18** (VM and emulator acceptance passed; on Android 13+ recents opened from inside the unlocked app shows the live window, owner tests later); **rollout pending** (Task 73: nodes 0.10.1 with `sandbox-setup.sh`, then app 0.10.1; see M9.4 notes) |
 | M9.5 | Member privacy and the network code (server 0.11.0, app 0.11.0 (15); after M9.4, before M10; spec `superpowers/specs/2026-11-15-m9-5-member-privacy-design.md`, plan `superpowers/plans/2026-11-18-m9-5-member-privacy.md`) | `directory.sync` and new `directory.list` return the caller's visible set with invite ancestry (D135); `directory.get` by id (≤ 256) and `directory.lookup` exact username, 30/h and 200/day per account (D137); `DirectoryEntry.listed` (12); `LoginResponse.server_version` (4) for members only; `otter-admin network code` (D139); the `directory` event stays a broadcast (D138); no DB migration | catalog of listed, related, chat and group contacts in «Написать» and the group pickers (D136, Room v10); search with «Найти @name» and a person card; tappable `@username` in messages; «Поделиться именем пользователя»; «Показывать меня в каталоге сети» (off by default); unknown senders, recipients and group members fetched by id; network code on the join screen and in «Состояние сети» with each node's version; «Сеть изменилась» warning (D139) | a member of family A cannot see family B in «Написать»; `@username` sent in a chat opens that person — **built 2026-11-19; owner test and rollout pending** (every node first, then the APK) |
-| M10 | 1:1 video calls (server 0.12.0, app 0.12.0 (16); after M9, owner 2026-11-15; was M8.5) | camera on/off at any time in any call (video transceiver negotiated in every call, no renegotiation), TURN `relay_kbps` 200 → 2000, per-call bitrate logging | 720p ≤ 1.5 Mbit/s with automatic downgrade, manual «Экономить трафик» (360p ≤ 500 kbit/s), front/back switch, picture-in-picture, audio-only pause on throttled links; camera starts only on the user's tap, answering never turns it on | same two phones hold a 5-min video call over the relays; throttled link degrades to audio instead of dropping |
+| M10 | 1:1 video calls (server 0.12.0, app 0.12.0 (16); after M9, owner 2026-11-15; was M8.5; spec `superpowers/specs/2026-11-15-m10-video-calls-design.md`, plan `superpowers/plans/2026-11-15-m10-video-calls.md`) | camera on/off at any time in any call (first offer audio-only, video added by one re-offer after the answer, then `setTrack` only, D125), TURN `relay_kbps` 200 → 2000, per-call bitrate logging | 720p ≤ 1.5 Mbit/s with automatic downgrade, manual «Экономить трафик» (360p ≤ 500 kbit/s), front/back switch, picture-in-picture, audio-only pause on throttled links; camera starts only on the user's tap, answering never turns it on | same two phones hold a 5-min video call over the relays; throttled link degrades to audio instead of dropping — **done 2026-11-26** (see M10 notes; real-network rows open) |
 
 Recommended build order is M0→M9 (M6.5 before M7; calls M8 before hardening M9, video M10 after M9 (owner 2026-11-15), owner request 2026-11-13); M7 can move earlier if blocking is immediate
 (the transport interface exists from M1, so only the REALITY implementation is deferred).
@@ -72,6 +72,56 @@ on the phone.
 ## Open questions
 
 None currently.
+
+## M10 notes (2026-11-26)
+
+Built (D125–D129): server — `[turn] relay_kbps` default 2000 (the `turn on` line shows it), one `turn allocation
+closed` line per allocation with avg/peak kbit/s and limiter drops per direction (`internal/turnsrv/relay.go`, meshsim
+`TestTurnRelayLogsBitRatesWhenAnAllocationCloses`), `deploy/turn-kbps.sh LABEL KBPS`, proto `CallMessage.media`
+(`CallMedia`), `CallOffer.video` / `add_video`, `CallAnswer.video`. App — `VideoState` and the add-video negotiation in
+`CallStateMachine`, `VideoWatchdog`, `CallManager` (`CallMedia` non-urgent, saver default, stats sampling),
+`MediaEngine.addVideo/setCamera/setPaused/switchCamera/setSaver/stats/peerVideo`, `WebRtcEngine` video (shared
+`EglBase`, caps, camera switch), `VideoSinks`, the call screen (remote video, draggable mirrored tile, camera / switch /
+saver buttons, notices), camera permission on the first tap, `camera` FGS type while on, pause when hidden or locked,
+picture-in-picture, «Экономить трафик в видеозвонках» (the row under «Звонки только через сервер»), privacy guards
+(`VideoPrivacyTest`, `CameraEntryPointsTest`, notifications without pictures), instrumented `VideoLoopbackTest`.
+Robolectric + **Roborazzi 1.59.0** screenshots were added (test-only; PNGs under `build/`, not committed).
+
+Deviations from the spec and the plan:
+* **The JSEP/`recvonly` finding (amendment A, D125).** The spec assumed an app before 0.12.0 answers a video offer with
+  `recvonly`. On the emulator (Task 11) a 0.11 app instead **crashed natively** in `setRemoteDescription`
+  (libwebrtc `front() called on an empty vector`, SIGABRT): its factory has no video codecs. So the first offer stays
+  audio-only in every call; 0.12 apps announce `video` in offers and answers, and the caller adds video with one
+  `add_video` re-offer after the answer (10 s caller / 20 s callee timeout → no video in that call). The camera button
+  stays disabled until the exchange ends (≈ 1 s). Also confirmed: the answerer must make the transceiver created by
+  the remote offer `sendrecv` itself (JSEP matches only `addTrack` transceivers).
+* **Test bursts (D126, owner question 1).** The estimate cannot rise while only audio flows, so a paused call sends
+  short bursts of video (15 s, 30 s, 60 s, then every 2 min; ≤ 5 s unless ≥ 400 kbit/s; 15 s ≥ 400 resumes).
+* While the screen is off or locked, sending stops but the capturer stays open (camera indicator on, D127); the unlock
+  needed an **exported** `USER_PRESENT` receiver on Android 14 (fix `75ec9ef`, found in the emulator run).
+* The camera is optional hardware (`uses-feature … required="false"`); no Room change.
+* The relay's one-second token bucket lets a busiest-second peak reach up to 2 × `relay_kbps` without drops (D129).
+
+Local results (2026-11-26; checklists `otter-android/docs/m10-manual-test.md`, `otter-server/docs/m10-manual-test.md`):
+two emulators (API 34 and API 30) on a throwaway two-node network with TURN, relay-only. Phone rows 1–12 PASS: camera
+dialog on the first tap, peer video ~2 s after the tap, avatar < 1 s after camera off, camera switch, no video while
+ringing or locked and the answering phone's camera off (row 4 adapted: since amendment A the caller's camera cannot
+be on before the answer), camera refusal and «Настройки», in-call and Settings saver (capture 640×360@20), PiP 9:16
+with a working end-call action on both API levels, lock/unlock (after `75ec9ef`), weak-link pause on a 200 kbit/s
+throttle in 10–19 s and video back 133–143 s after the limit was lifted, 0.11.0 ↔ 0.12.0 calls audio-only both ways
+with «У собеседника старая версия» and no crash, `adb install -r` over 0.11.0 keeping account and chats. FGS types
+`phoneCall|microphone` → `+camera` while the camera is on. Server rows 1–3 PASS: `make check`, meshsim TURN tests ×3,
+`scripts_test.sh` in a copy; `turn on … "relay_kbps":2000` with no setting; one closed line per allocation, no names
+or addresses, `rate_limited` false everywhere; peaks 0–835 kbit/s except one line with a single 3152 kbit/s second
+(average 129, 0 drops; see D129; a repeat peaked at 515). Emulator scenes are mostly static, so the encoder used far
+less than the caps.
+
+Open (owner, real phones and nodes): phone rows 13–18 (5-min relay video call, ~200 kbit/s hotspot, answering while
+the caller's camera is on, Bluetooth headset, «Запрет скриншотов» with PiP, node log peaks after row 13) and server rows
+4–6 (`upgrade-all.sh 0.12.0` on every node, `turn-kbps.sh LABEL 2000` on every node, `turn allocation closed` lines
+after the call). Rollout: every node, then the rate, then the APK and the 0.12.0 news (plan Task 19). Noted, not
+changed: the owner may want the capturer stopped on lock; a ~0.5 s black frame before the avatar when the remote camera
+turns off.
 
 ## M9.5 notes (2026-11-19)
 
