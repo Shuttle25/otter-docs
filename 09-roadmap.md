@@ -95,12 +95,15 @@ Build-time facts and deviations from the spec and the plan:
   the tiles cache cannot be opened at start, the node does not start (as built; the owner may prefer "start without
   maps").
 * The tiles config is a `[tiles]` section of `node.toml` (not `tiles_upstream` / `tiles_cache_mb` keys), written
-  commented and only into 0.13.0+ bundles; the upstream is switched on per node with `tiles-upstream.sh` (not by
+  only into 0.13.0+ bundles with the header active and the keys commented; the upstream is switched on per node with `tiles-upstream.sh` (not by
   `add-node.sh` / `upgrade.sh` defaults). The peer used is any live peer, not one that "advertises upstream access".
 * App: group outbox items now honour their expiry (the D140 gap: group envelopes never expired); parked group
   envelopes whose record expired are dropped quietly. A live share's end is counted from `min(sent_ms, received_ms)`
   (the spec said `sent_ms`). A start with an unknown period becomes a pin. The author's stop counts after they left
-  the group. Location sends keep the composer draft. The 📎 attach menu is new (D143; the spec assumed one existed).
+  the group; leaving stops our shares there first (the stop is encrypted before the leave, so it still goes out), and
+  a phone applying a removal (or a revocation / re-key) ends that member's shares itself (final review I1). A timed
+  share sends no stop at its end (receivers end it by their clock). The map's OkHttp client asks at most 4 pieces at
+  once (the node's 4 tile slots per session). Location sends keep the composer draft. The 📎 attach menu is new (D143; the spec assumed one existed).
 * `LiveLocationService` declares `location|shortService`: the short-service type only satisfies a start Android
   refused for location, then the service stops (the loop never runs under it). Fixes without an accuracy are dropped;
   `CoarseFixFilter` drops a fix more than 4× worse than the best of the last 30 s.
@@ -120,8 +123,10 @@ the notification, reboot of the sharing emulator → share ended 11 s after the 
 «📍 Местоположение» without coordinates, permission refusals → «Открыть настройки». No tile coordinates and no WARN /
 ERROR lines in the node logs. Map text needs `-gpu host` on emulators (SwiftShader draws no MapLibre text).
 
-Open (owner): phone rows 7–13 on the real nodes, rollout (`upgrade-all.sh 0.13.0`, `tiles-upstream.sh` on the foreign
-node only, `release-apk.sh 0.13.0`, news), the merge. Decisions to revisit: tiles cache failure stops the node;
+Open (owner): phone rows 7–13 on the real nodes, rollout, the merge. Rollout order: upgrade the foreign nodes first
+(`upgrade-all.sh 0.13.0 --only LABEL`) and turn their upstream on (`deploy/tiles-upstream.sh LABEL on`) **before**
+ru-1 (which stays off and asks its peers); at least one foreign node must have the upstream on, or no maps load
+anywhere. Then ru-1, `release-apk.sh 0.13.0`, news. Decisions to revisit: tiles cache failure stops the node;
 MapLibre 13.x for a smaller APK.
 
 ## M10 notes (2026-11-26)

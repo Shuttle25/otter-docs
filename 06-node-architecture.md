@@ -196,7 +196,7 @@ per minute. A peer is answered by `Tiles.Local` (cache, own upstream, never furt
 `status --line`. A cache that cannot be opened stops the node at start.
 
 ```toml
-[tiles]                      # M11, optional; commented in 0.13.0+ bundles, set with deploy/tiles-upstream.sh
+[tiles]                      # M11, optional; keys commented in 0.13.0+ bundles, set with deploy/tiles-upstream.sh
 upstream = "https://tiles.openfreemap.org/planet"   # foreign nodes only; empty = ask peers
 cache_mb = 2048
 ```

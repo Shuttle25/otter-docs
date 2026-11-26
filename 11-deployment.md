@@ -278,7 +278,7 @@ requests_per_ip = 50        # client requests per second per source, burst 10x (
 listen = "127.0.0.1:9477"   # loopback only: a public address is refused at start; "off" disables (D119)
 ```
 
-Map pieces (M11, D141), appended commented to `node.toml` only by 0.13.0+ bundles (`deploy/templates/node.toml.tiles`;
+Map pieces (M11, D141), appended to `node.toml` only by 0.13.0+ bundles, header active and keys commented (`deploy/templates/node.toml.tiles`;
 older binaries refuse unknown keys, so never add it by hand to a node below 0.13.0):
 
 ```toml
@@ -618,7 +618,7 @@ On Ubuntu 24.04 sshd can be socket-activated; a `WARN listener` naming `systemd`
 | M6 (done) | `/var/lib/otter/blobs/` also holds members' password backups (persistent blobs, ≤ 3 per member, counted in `user_quota`); nothing to configure; DB migration 0005 runs on upgrade. Upgrade all nodes (`upgrade-all.sh`) before relying on restore: an older node answers `auth.login` without `installed_ms` and does not know the backup methods |
 | M7 (done) | Optional `[reality]` in `node.toml` + `/etc/otter/reality.key` on foreign nodes, listening on :443 (`CAP_NET_BIND_SERVICE`; clients stay on the node port, D26 revised for REALITY only), set up with `deploy/reality-setup.sh` after the node runs 0.7.0; `dial_out_only` for a domestic node (`add-node.sh` asks); DB migration 0008 (`netlog`); `upgrade.sh` also rolls back `node.toml` (§13) |
 | M9.4 (done, 0.10.1) | `[limits]` gains `disk_floor`, `user_pending`, `conns_per_ip`, `requests_per_ip`; `[metrics]` (loopback only, default `127.0.0.1:9477`); the node writes `/var/lib/otter/status.json`; `otter-node status`; `status.sh` health block; sandboxed `otter-node.service` / `otter-backup.service` via `sandbox-setup.sh` (also run by `upgrade-all.sh` for 0.10.1+, `--no-sandbox` skips it); read-only `harden-check.sh` (`harden-report.sh` installed to `/usr/local/lib/otter/`). No DB migration (M9.0–M9.3 brought 0009–0015); nothing to change in `node.toml` |
-| M11 (built, 0.13.0) | New 0.13.0+ bundles append a commented `[tiles]` section; `deploy/tiles-upstream.sh LABEL on` on each foreign node after `upgrade-all.sh 0.13.0` (the node in Russia stays off); cache in `/var/lib/otter/tiles/` (default cap 2 GiB); `tiles=` in `status.sh`. No DB migration, no firewall change (outbound HTTPS only) |
+| M11 (built, 0.13.0) | New 0.13.0+ bundles append a `[tiles]` section (header active, keys commented). **Order:** upgrade the foreign nodes first (`upgrade-all.sh 0.13.0 --only LABEL`…) and turn their upstream on (`deploy/tiles-upstream.sh LABEL on`), **then** ru-1 (it stays off and gets pieces from those peers). At least one foreign node must have the upstream on, or no maps load anywhere; cache in `/var/lib/otter/tiles/` (default cap 2 GiB); `tiles=` in `status.sh`. No DB migration, no firewall change (outbound HTTPS only) |
 
 ---
 

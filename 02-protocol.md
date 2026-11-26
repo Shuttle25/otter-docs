@@ -491,8 +491,11 @@ first; then one ENVELOPE with N recipients.
 ### Location and map pieces (M11; D140–D144; server and app 0.13.0)
 1. Pin: 📎 → «Местоположение» → the phone sends a `DataMessage` with `location` (period 0) like a text (above).
 2. Live share: the start is the same message with a period; `LiveLocationService` then queues `LocationUpdate`s in the
-   outbox and wakes the send path for each one (no connection stays open, D142); the stop goes out when the period
-   ends, on «Остановить», or on the next app start after a reboot.
+   outbox and wakes the send path for each one (no connection stays open, D142). A `stopped` update goes out on
+   «Остановить», on the next app start after a reboot, and when the sharer leaves the group (queued and encrypted
+   before the leave, so it still reaches the others). A timed share sends **no** stop at its end: every receiver ends
+   it by its own clock (D140). A member removed from a group (or whose account was revoked or re-keyed) cannot send a
+   stop: each phone ends that member's shares itself when it applies the removal or the revocation.
 3. Map: the app's map asks `tiles.get` on its current node for each piece it draws. The node answers from its disk
    cache; on a miss a node with `[tiles] upstream` fetches the piece over HTTPS, a node without one asks its peers with
    `PeerTileGet` / `PeerTile` ([03](03-mesh-replication.md) "Map pieces"), and caches the answer. A peer never asks
