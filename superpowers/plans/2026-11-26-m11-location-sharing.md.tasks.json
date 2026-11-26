@@ -120,7 +120,7 @@
     {
       "id": 14,
       "subject": "Task 14: Emulator acceptance, docs, versions, checks, owner test, merge, rollout",
-      "status": "in_progress",
+      "status": "completed",
       "description": "**Goal:** Two emulators share live location end to end through a dev mesh, the docs match the code, the owner tests on phones and decides the merge.\n\nFull steps: superpowers/plans/2026-11-26-m11-location-sharing.md (Task 14: Emulator acceptance, docs, versions, checks, owner test, merge, rollout).\n\n```json:metadata\n{\"files\": [\"docs-m11/00-decisions.md\", \"feature/location\", \"docs-m11/superpowers/specs/2026-11-25-m11-location-sharing-design.md\", \"otter-android-m11/app/build.gradle.kts\", \"otter-android-m11/docs/m11-manual-test.md\"], \"verifyCommand\": \"the three check commands above.\", \"acceptanceCriteria\": [\"Emulators (`m8_api34` + `m8_api30`, dev mesh of two nodes: one with an upstream stub, one without): A shares live 15 min while `adb emu geo fix` walks a route (a point every 20 s); B sees the dot move; B's node had no upstream and got pieces through the peer; A stops → B shows «Трансляция завершена»; reboot of A's emulator during a share → B sees the share stopped after A's app starts.\", \"Server: `nice -n 15 ionice -c3 go test -p 4 -count=1 ./...` all `ok`; `go vet ./...` clean; `scripts/secrets-check.sh` ok.\", \"App (after the server run): `nice -n 15 ./gradlew --max-workers=4 test lintDebug assembleDebug` → `BUILD SUCCESSFUL`; `scripts/secrets-check.sh` ok.\", \"Docs: `scripts/secrets-check.sh` ok.\", \"Owner test passed and the owner said \\\"merge\\\".\"]}\n```",
       "blockedBy": [
         6,
@@ -128,5 +128,5 @@
       ]
     }
   ],
-  "lastUpdated": "2026-11-26T04:04:16Z"
+  "lastUpdated": "2026-11-26T12:00:00Z"
 }
