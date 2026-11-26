@@ -19,7 +19,7 @@
 | Maps and location (M11) | MapLibre Native Android `org.maplibre.gl:android-sdk:11.13.5` (only in `:feature:location`; bundled style, sprites and glyphs; tiles only through `TileBridge`, D144); `com.google.android.gms:play-services-location:21.4.0` (fused positions when Google Play services exist; platform `LocationManager` otherwise, D142) |
 | QR | ZXing (works without Google Play Services) |
 | Min / target SDK | 26 / latest |
-| Build | Release ABIs **arm64-v8a + armeabi-v7a** (x86_64 only in debug/staging, for the emulator; M8). Gradle KTS, version catalog, **one build, no flavors** (D61): `firebase-messaging` is always linked; the `google-services` plugin is applied only when `app/google-services.json` exists (never committed), otherwise the app builds and runs without push. Distributed as signed **APKs** (direct download; FCM works from an APK as long as the phone has Google Play services). Build types debug, release, staging (M3) |
+| Build | Release ABI **arm64-v8a** only since 0.13.0 (D145; 32-bit armeabi-v7a dropped; x86_64 only in debug/staging, for the emulator; M8). Gradle KTS, version catalog, **one build, no flavors** (D61): `firebase-messaging` is always linked; the `google-services` plugin is applied only when `app/google-services.json` exists (never committed), otherwise the app builds and runs without push. Distributed as signed **APKs** (direct download; FCM works from an APK as long as the phone has Google Play services). Build types debug, release, staging (M3) |
 | App id | `app.ottermsg` (name: **OtterMSG**) |
 | History | All messages kept on the phone indefinitely (no auto-delete) |
 
@@ -560,7 +560,7 @@ No Room schema change (still v8): `contacts.revoked` existed already.
   via `geo:`; an ended share or a pin focused as «Точка на карте»). Composer 📎 menu (D143), `LocationBubble`,
   `SharingStrip`; chat list, notifications and message info show «📍 Местоположение» / «📍 Трансляция
   местоположения», never coordinates. Backups keep pins (period forced to 0), never `live_locations`.
-* **Size**: the APK grows by ~24 MB (MapLibre's `.so` for arm64-v8a and armeabi-v7a). MapLibre 13.x exists; moving
+* **Size**: MapLibre's `.so` is ~13 MB for arm64-v8a; dropping 32-bit armeabi-v7a (D145) removes ~27 MB of native code, so the 0.13.0 APK is smaller than 0.12.0. MapLibre 13.x exists; moving
   to it is an owner decision. Tests: Robolectric with `LocalMapRenderer` / `LocalMapSnapshots` fakes (MapLibre's
   native view does not run on the JVM), Roborazzi screenshots (light and dark) of the 📎 menu, picker, live map, bubbles, strip and chat-list row.
 * **Emulators**: on headless emulators the default SwiftShader renderer draws no MapLibre text; start them with
