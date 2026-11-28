@@ -1051,7 +1051,7 @@ object TextLinks {
 
 ### Task 15: Emulator acceptance, docs, version, checks, owner build/test/merge
 
-**Goal:** Two emulators confirm files and shared media end to end; docs record D147–D149; app 0.15.0; checks green; owner tests and decides the merge.
+**Goal:** Two emulators confirm files and shared media end to end; docs record D147–D149; app 0.15.0; checks green; the release APK and news are built and handed over without stopping; the owner rolls out, tests and decides the merge.
 
 **Files:**
 - Modify: `docs-m13/00-decisions.md` (D147–D149 from the spec's "Decisions to record"), `02-protocol.md` (`FileShare`, parts rule, fallback text), `07-android-architecture.md` (FileSealer/MultiPartReader, FileContentProvider, FileTransferService, `feature/media`, Room v13), `09-roadmap.md` (M13 row), `10-otter-design-guidelines.md` (file bubble, profile, tabs, risky dialog)
@@ -1071,18 +1071,26 @@ object TextLinks {
 - [ ] **Step 2:** Docs edits; `oc -am "docs: M13 files and shared media (D147–D149), app 0.15.0" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
 - [ ] **Step 3:** Version bump; `oc -am "app 0.15.0 (versionCode 19)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
 - [ ] **Step 4:** Checks one after another; mark tasks completed in `docs-m13/superpowers/plans/2026-11-28-m13-files-and-shared-media.md.tasks.json`; commit.
-- [ ] **Step 5: Ask the owner → build.** Release APK only:
+- [ ] **Step 5: Build the release — do NOT stop to ask** (owner 2026-11-28: finish all builds and hand over links):
 
 ```bash
 cd ~/Documents/Projects/OttterMSG/otter-android-m13 && ln -s ../otter-android/release.jks release.jks && \
   JAVA_HOME=~/.gradle/jdks/eclipse_adoptium-21-amd64-linux.2 nice -n 15 ./gradlew --max-workers=4 \
   -PotterKeystore=../otter-android/keystore.properties assembleRelease; rm release.jks
 cp app/build/outputs/apk/release/app-release.apk ../otter-server/dist/otter-app_0.15.0.apk
+sha256sum ../otter-server/dist/otter-app_0.15.0.apk
+apksigner verify --print-certs ../otter-server/dist/otter-app_0.15.0.apk | grep -m1 SHA-256   # must match the 0.14.0 release cert
 ```
-  News draft `otter-server/dist/news/0.15.0.md` (`## ru` / `## en`): «Файлы до 1 ГБ через 📎 → «Файл»; фото без сжатия
-  (геометка удаляется); в профиле собеседника и в информации о группе — все фото, файлы, ссылки и места чата. Файлы,
-  которые никто не скачал за 7 дней, удаляются с серверов.» Never delete anything in `otter-server/dist/`.
-- [ ] **Step 6: Owner pre-check, rollout, phone test** (owner runs; never ssh yourself):
+  If the keystore asks for a passphrase that is not in `keystore.properties`, stop and give the owner the exact command
+  (passphrases are typed only in the owner's terminal). Server binaries are **not** rebuilt: M13 has no server change,
+  nodes stay on 0.13.0.
+  Write the news `otter-server/dist/news/0.15.0.md` (`## ru` / `## en`): «Файлы до 1 ГБ через 📎 → «Файл»; фото без
+  сжатия (геометка удаляется); в профиле собеседника и в информации о группе — все фото, файлы, ссылки и места чата.
+  Файлы, которые никто не скачал за 7 дней, удаляются с серверов.» Never delete anything in `otter-server/dist/`.
+  Save a release log in `~/Documents/otter-private/releases/2026-MM-DD-0.15.0.md` (sha256, cert, commits, test results).
+  **Hand over** to the owner, without waiting: the full paths of the APK and the news file, the sha256, and the
+  commands of Step 6.
+- [ ] **Step 6: Owner pre-check, rollout, phone test** (handed over in Step 5; owner runs; never ssh yourself):
 
 ```bash
 cd ~/Documents/Projects/OttterMSG/otter-server
@@ -1094,7 +1102,7 @@ deploy/release-apk.sh 0.15.0 dist/otter-app_0.15.0.apk
   photo: the receiver saves it; its details show no location. (5) An `.apk` shows the warning. (6) Profile from the
   chat header: counts right; each tab opens; «Показать в чате» jumps to the message. (7) Group info card. (8) A phone
   still on 0.14 sees «📎 Файл: … — обновите Otter».
-- [ ] **Step 7: Ask the owner → merge** (temporary worktrees):
+- [ ] **Step 7: Merge only after the owner says "merge"** (standing rule; temporary worktrees):
 
 ```bash
 cd ~/Documents/Projects/OttterMSG
